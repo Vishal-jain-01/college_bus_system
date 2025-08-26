@@ -1,0 +1,12 @@
+[
+  {
+    "_id": { "$oid": "66d0123456a1b2c3d4e5f601" },
+    "busNumber": "BUS-101",
+    "route": "Meerut → Campus"
+  },
+  {
+    "_id": { "$oid": "66d0123456a1b2c3d4e5f602" },
+    "busNumber": "BUS-102",
+    "route": "Modinagar → Campus"
+  }
+]
