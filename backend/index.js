@@ -23,9 +23,6 @@ app.use("/api/auth", authRoutes);
 // Connect to DB
 mongoose.connect("mongodb://localhost:27017/busTracking");
 
-app.post("/api/auth/student/login", (req, res) => {
-  res.json({ message: "Login route working" });
-});
 // API: Get all students
 app.get("/api/students", async (req, res) => {
   const students = await Student.find().populate("bus");
@@ -38,4 +35,4 @@ app.get("/api/buses", async (req, res) => {
   res.json(buses);
 });
 
-app.listen(5000, () => console.log("Server running on http://localhost:5000"));
+app.listen(3001, () => console.log("Server running on http://localhost:3001"));

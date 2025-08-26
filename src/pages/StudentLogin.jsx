@@ -11,7 +11,7 @@ export default function StudentLogin() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post("http://localhost:5000/api/auth/student/login", {
+      const res = await axios.post("http://localhost:3001/api/auth/student/login", {
         email,
         password,
       });
