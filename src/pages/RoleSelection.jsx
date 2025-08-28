@@ -1,56 +1,3 @@
-// // pages/RoleSelection.js
-// import { useNavigate } from "react-router-dom";
-
-// export default function RoleSelection() {
-//   const navigate = useNavigate();
-
-//   return (
-//     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-white to-green-100 flex flex-col">
-//       {/* Header / Branding */}
-//       <header className="w-full flex justify-center py-8 bg-white/80 shadow-md">
-//         <h1 className="text-4xl font-extrabold text-blue-700 tracking-tight drop-shadow-lg">
-//           🚌 Bus Tracking System
-//         </h1>
-//       </header>
-
-//       {/* Hero Section */}
-//       <main className="flex-1 flex flex-col items-center justify-center px-4">
-//         <div className="max-w-xl w-full bg-white/90 rounded-2xl shadow-2xl p-10 flex flex-col items-center">
-//           <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">Welcome!</h2>
-//           <p className="text-gray-600 mb-8 text-center">
-//             Track your bus, stay updated, and connect with your driver. Please select your role to continue:
-//           </p>
-//           <div className="flex flex-col gap-4 w-full">
-//             <button
-//               onClick={() => navigate("/login/student")}
-//               className="w-full px-6 py-3 bg-blue-500 text-white rounded-lg shadow-lg hover:bg-blue-600 text-lg font-semibold transition"
-//             >
-//               Student Login
-//             </button>
-//             <button
-//               onClick={() => navigate("/login/driver")}
-//               className="w-full px-6 py-3 bg-green-500 text-white rounded-lg shadow-lg hover:bg-green-600 text-lg font-semibold transition"
-//             >
-//               Driver Login
-//             </button>
-//             <button
-//               onClick={() => navigate("/login/admin")}
-//               className="w-full px-6 py-3 bg-red-500 text-white rounded-lg shadow-lg hover:bg-red-600 text-lg font-semibold transition"
-//             >
-//               Admin Login
-//             </button>
-//           </div>
-//         </div>
-//       </main>
-
-//       {/* Footer */}
-//       <footer className="w-full text-center py-4 text-gray-400 text-sm">
-//         &copy; {new Date().getFullYear()} Bus Tracking System. All rights reserved.
-//       </footer>
-//     </div>
-//   );
-// }
-
 // pages/RoleSelection.js
 import { useNavigate } from "react-router-dom";
 
@@ -58,28 +5,90 @@ export default function RoleSelection() {
   const navigate = useNavigate();
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-      <h1 className="text-2xl font-bold mb-6">Bus Tracking System</h1>
-      <div className="space-y-8">
-        <button 
-          onClick={() => navigate("/login/student")} 
-          className="px-6 py-3 bg-blue-500 text-white rounded-lg shadow-lg hover:bg-blue-600"
-        >
-          Student
-        </button>
-        <button 
-          onClick={() => navigate("/login/driver")} 
-          className="px-6 py-3 bg-green-500 text-white rounded-lg shadow-lg hover:bg-green-600"
-        >
-          Driver
-        </button>
-        <button 
-          onClick={() => navigate("/login/admin")} 
-          className="px-6 py-3 bg-red-500 text-white rounded-lg shadow-lg hover:bg-red-600"
-        >
-          Admin
-        </button>
+    <div className="min-h-screen relative flex flex-col items-center justify-center overflow-hidden">
+      {/* Background */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: 'url("https://images.unsplash.com/photo-1570125909232-eb263c188f7e?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80")'
+        }}
+      ></div>
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-indigo-800/70 to-purple-900/80"></div>
+      
+      {/* Animated background elements */}
+      <div className="absolute inset-0">
+        {[...Array(15)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute w-3 h-3 bg-white rounded-full opacity-20 animate-float"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              animationDelay: `${Math.random() * 5}s`,
+              animationDuration: `${4 + Math.random() * 4}s`
+            }}
+          ></div>
+        ))}
       </div>
+
+      <div className="relative z-10 text-center">
+        <div className="mb-12">
+          <h1 className="text-6xl font-bold bg-gradient-to-r from-white via-blue-100 to-indigo-200 bg-clip-text text-transparent mb-4 animate-bounce">
+            🚌 Bus Tracking System
+          </h1>
+          <p className="text-2xl text-white/90 mb-2">Real-time College Bus Management</p>
+          <div className="w-32 h-1 bg-gradient-to-r from-blue-400 to-purple-500 mx-auto rounded-full"></div>
+        </div>
+        
+        <div className="flex flex-col gap-8">   
+          <button 
+            onClick={() => navigate("/login/student")} 
+            className="group px-12 py-6 bg-gradient-to-r from-blue-500 via-blue-600 to-blue-700 text-white rounded-2xl shadow-2xl hover:from-blue-600 hover:via-blue-700 hover:to-blue-800 transform hover:scale-110 hover:rotate-1 transition-all duration-300 border border-white/20 backdrop-blur-sm"
+          >
+            <div className="flex items-center justify-center space-x-4">
+              <span className="text-3xl group-hover:animate-bounce">🎓</span>
+              <span className="text-2xl font-bold">Student Portal</span>
+            </div>
+            <p className="text-blue-100 mt-2">Track your bus in real-time</p>
+          </button>
+          
+          <button 
+            onClick={() => navigate("/login/driver")} 
+            className="group px-12 py-6 bg-gradient-to-r from-green-500 via-green-600 to-emerald-700 text-white rounded-2xl shadow-2xl hover:from-green-600 hover:via-green-700 hover:to-emerald-800 transform hover:scale-110 hover:rotate-1 transition-all duration-300 border border-white/20 backdrop-blur-sm"
+          >
+            <div className="flex items-center justify-center space-x-4">
+              <span className="text-3xl group-hover:animate-bounce">🚗</span>
+              <span className="text-2xl font-bold">Driver Portal</span>
+            </div>
+            <p className="text-green-100 mt-2">Manage attendance & routes</p>
+          </button>
+          
+          <button 
+            onClick={() => navigate("/login/admin")} 
+            className="group px-12 py-6 bg-gradient-to-r from-red-500 via-red-600 to-pink-700 text-white rounded-2xl shadow-2xl hover:from-red-600 hover:via-red-700 hover:to-pink-800 transform hover:scale-110 hover:rotate-1 transition-all duration-300 border border-white/20 backdrop-blur-sm"
+          >
+            <div className="flex items-center justify-center space-x-4">
+              <span className="text-3xl group-hover:animate-bounce">⚙️</span>
+              <span className="text-2xl font-bold">Admin Portal</span>
+            </div>
+            <p className="text-red-100 mt-2">Complete system management</p>
+          </button>
+        </div>
+        
+        <div className="mt-12 text-white/70">
+          <p className="text-lg">Secure • Reliable • Real-time</p>
+        </div>
+      </div>
+
+      <style jsx>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 0.2; }
+          50% { transform: translateY(-30px) rotate(180deg); opacity: 0.5; }
+        }
+        .animate-float {
+          animation: float 8s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 }

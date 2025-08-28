@@ -1,17 +1,39 @@
 // src/pages/StudentsList.js
 import { useEffect, useState } from "react";
-import axios from "axios";
 import { Route } from "react-router-dom";
 import StudentLogin from "./StudentLogin";
 
 export default function StudentsList() {
   const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    axios.get("http://localhost:5000/api/students/me")
-      .then(res => setStudents(res.data))
-      .catch(err => console.error(err));
+    fetch('/student.json')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Failed to load student data');
+        }
+        return response.json();
+      })
+      .then(data => {
+        setStudents(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Error loading student data:', err);
+        setError('Failed to load student data');
+        setLoading(false);
+      });
   }, []);
+
+  if (loading) {
+    return <div className="p-6">Loading students...</div>;
+  }
+
+  if (error) {
+    return <div className="p-6 text-red-500">{error}</div>;
+  }
 
   return (
     <div className="p-6">
@@ -22,16 +44,16 @@ export default function StudentsList() {
             <th className="border border-gray-400 px-4 py-2">Roll No</th>
             <th className="border border-gray-400 px-4 py-2">Name</th>
             <th className="border border-gray-400 px-4 py-2">Email</th>
-            <th className="border border-gray-400 px-4 py-2">Bus</th>
+            <th className="border border-gray-400 px-4 py-2">Bus ID</th>
           </tr>
         </thead>
         <tbody>
-          {students.map((s) => (
-            <tr key={s._id}>
+          {students.map((s, index) => (
+            <tr key={index}>
               <td className="border border-gray-400 px-4 py-2">{s.rollNo}</td>
               <td className="border border-gray-400 px-4 py-2">{s.name}</td>
               <td className="border border-gray-400 px-4 py-2">{s.email}</td>
-              <td className="border border-gray-400 px-4 py-2">{s.bus?.busNumber}</td>
+              <td className="border border-gray-400 px-4 py-2">{s.bus.$oid}</td>
             </tr>
           ))}
         </tbody>

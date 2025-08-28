@@ -9,7 +9,8 @@ import DriverLogin from "./pages/DriverLogin.jsx";
 import AdminLogin from "./pages/AdminLogin.jsx";
 import StudentsList from "./pages/StudentsList";
 import StudentDashboard from "./pages/StudentDashboard";
-
+import AdminDashboard from "./pages/AdminDashboard.jsx";
+import DriverDashboard from "./pages/DriverDashboard.jsx";
 
 function App() {
   const [count, setCount] = useState(0)
@@ -22,6 +23,8 @@ function App() {
         <Route path="/login/driver" element={<DriverLogin />} />
         <Route path="/login/admin" element={<AdminLogin />} />
         <Route path="/students" element={<StudentsList />} />
+        <Route path="/admin/dashboard" element={<AdminDashboard />} />
+        <Route path="/driver/dashboard" element={<DriverDashboard />} />
         <Route path="/student/dashboard" element={<StudentDashboard />} />
       </Routes>
     </Router>
