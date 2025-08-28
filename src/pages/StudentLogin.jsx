@@ -49,6 +49,7 @@ export default function StudentLogin() {
           className="w-full p-2 border rounded"
           required
         />
+        <br/>
         <input
           type="password"
           placeholder="Password"
@@ -57,7 +58,8 @@ export default function StudentLogin() {
           className="w-full p-2 border rounded"
           required
         />
-        
+        <br/>
+        <br/>
         <button
           type="submit"
           className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600"
