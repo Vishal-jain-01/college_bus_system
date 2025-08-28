@@ -3,8 +3,8 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 
-import Student from "./models/student.js";
-import Bus from "./models/bus.js";
+import Student from "./models/Student.js";
+import Bus from "./models/Bus.js";
 import authRoutes from "./routes/auth.js";
 
 const app = express();
@@ -14,14 +14,14 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
-})); // This should be before all routes
+})); 
 
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 
 // Connect to DB
-mongoose.connect("mongodb://localhost:27017/busTracking");
+mongoose.connect("mongodb://localhost:27017/bus");
 
 // API: Get all students
 app.get("/api/students", async (req, res) => {

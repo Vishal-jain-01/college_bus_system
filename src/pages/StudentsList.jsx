@@ -1,12 +1,14 @@
 // src/pages/StudentsList.js
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { Route } from "react-router-dom";
+import StudentLogin from "./StudentLogin";
 
 export default function StudentsList() {
   const [students, setStudents] = useState([]);
 
   useEffect(() => {
-    axios.get("http://localhost:5000/api/students")
+    axios.get("http://localhost:5000/api/students/me")
       .then(res => setStudents(res.data))
       .catch(err => console.error(err));
   }, []);
@@ -34,6 +36,7 @@ export default function StudentsList() {
           ))}
         </tbody>
       </table>
+      <Route path="/login/student" element={<StudentLogin />} />
     </div>
   );
 }

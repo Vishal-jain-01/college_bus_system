@@ -9,4 +9,6 @@ const studentSchema = new mongoose.Schema({
   bus: { type: mongoose.Schema.Types.ObjectId, ref: "Bus" },
 });
 
-export default mongoose.model("Student", studentSchema);
+const Student = mongoose.models.Student || mongoose.model("Student", studentSchema);
+
+export default Student;
