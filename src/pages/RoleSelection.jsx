@@ -37,7 +37,7 @@ export default function RoleSelection() {
             🚌 Bus Tracking System
           </h1>
           <p className="text-2xl text-white/90 mb-2">Real-time College Bus Management</p>
-          <div className="w-32 h-1 bg-gradient-to-r from-blue-400 to-purple-500 mx-auto rounded-full"></div>
+          <div className="w-72 h-1 bg-gradient-to-r from-blue-400 to-purple-500 mx-auto rounded-full"></div>
         </div>
         
         <div className="flex flex-col gap-8">   

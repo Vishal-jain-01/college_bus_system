@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AttendanceDB } from '../utils/attendanceDB.js';
 
 export default function AdminDashboard() {
   const [students, setStudents] = useState([]);
   const [activeTab, setActiveTab] = useState('buses');
   const [searchTerm, setSearchTerm] = useState('');
+  const [todayAttendance, setTodayAttendance] = useState([]);
   const navigate = useNavigate();
 
   const buses = [
@@ -33,7 +35,24 @@ export default function AdminDashboard() {
       .then(response => response.json())
       .then(data => setStudents(data))
       .catch(err => console.error('Error loading student data:', err));
+    
+    loadTodayAttendance();
   }, []);
+
+  const loadTodayAttendance = async () => {
+    try {
+      console.log('Loading today attendance...');
+      const today = new Date().toISOString().split('T')[0];
+      console.log('Today date:', today);
+      
+      const todayRecords = await AttendanceDB.getAttendanceByDate(today);
+      console.log('Today records:', todayRecords);
+      
+      setTodayAttendance(todayRecords);
+    } catch (error) {
+      console.error('Error loading today attendance:', error);
+    }
+  };
 
   const getStudentsByBus = (busId) => {
     return students.filter(student => student.bus.$oid === busId);
@@ -155,6 +174,17 @@ export default function AdminDashboard() {
             >
               <span className="text-2xl">👥</span>
               <span>Student Directory</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('attendance')}
+              className={`px-8 py-4 rounded-xl font-bold transition-all duration-300 flex items-center space-x-3 ${
+                activeTab === 'attendance' 
+                  ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-xl transform scale-105' 
+                  : 'text-gray-600 hover:bg-purple-50 hover:text-purple-600'
+              }`}
+            >
+              <span className="text-2xl">📋</span>
+              <span>Today's Attendance</span>
             </button>
           </div>
         </div>
@@ -281,6 +311,114 @@ export default function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Today's Attendance Tab */}
+        {activeTab === 'attendance' && (
+          <div className="animate-fadeIn">
+            <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl overflow-hidden border border-white/20">
+              <div className="p-8 bg-gradient-to-r from-purple-500 via-purple-600 to-indigo-600">
+                <h2 className="text-3xl font-bold text-white mb-4 flex items-center">
+                  📋 <span className="ml-3">Today's Attendance Summary</span>
+                </h2>
+                <p className="text-purple-100 text-lg">
+                  {new Date().toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </p>
+              </div>
+              
+              <div className="p-6">
+                {todayAttendance.length > 0 ? (
+                  <div className="space-y-6">
+                    {todayAttendance.map((record) => (
+                      <div key={record.id} className="bg-gray-50 rounded-2xl p-6 border border-gray-200">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <h3 className="text-xl font-bold text-gray-800">{record.driverName}</h3>
+                            <p className="text-gray-600">Bus ID: {record.busId} • {record.time}</p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-2xl font-bold text-green-600">{record.presentStudents.length}</div>
+                            <div className="text-sm text-gray-500">Present</div>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Present Students */}
+                          <div className="bg-white rounded-xl p-4 border border-green-200">
+                            <h4 className="text-lg font-semibold text-green-800 mb-3 flex items-center">
+                              ✅ Present Students ({record.presentStudents.length})
+                            </h4>
+                            <div className="space-y-2 max-h-32 overflow-y-auto">
+                              {record.presentStudents.map((student, index) => (
+                                <div key={index} className="flex items-center space-x-3 p-2 bg-green-50 rounded-lg">
+                                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                    {student.name.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-green-800">{student.name}</p>
+                                    <p className="text-xs text-green-600">{student.rollNo}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Absent Students */}
+                          <div className="bg-white rounded-xl p-4 border border-red-200">
+                            <h4 className="text-lg font-semibold text-red-800 mb-3 flex items-center">
+                              ❌ Absent Students ({record.absentStudents.length})
+                            </h4>
+                            <div className="space-y-2 max-h-32 overflow-y-auto">
+                              {record.absentStudents.map((student, index) => (
+                                <div key={index} className="flex items-center space-x-3 p-2 bg-red-50 rounded-lg">
+                                  <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                    {student.name.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-red-800">{student.name}</p>
+                                    <p className="text-xs text-red-600">{student.rollNo}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Summary Stats */}
+                        <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+                          <div className="bg-blue-50 p-3 rounded-lg">
+                            <div className="text-lg font-bold text-blue-600">{record.totalStudents}</div>
+                            <div className="text-sm text-blue-500">Total</div>
+                          </div>
+                          <div className="bg-green-50 p-3 rounded-lg">
+                            <div className="text-lg font-bold text-green-600">{record.presentStudents.length}</div>
+                            <div className="text-sm text-green-500">Present</div>
+                          </div>
+                          <div className="bg-purple-50 p-3 rounded-lg">
+                            <div className="text-lg font-bold text-purple-600">
+                              {Math.round((record.presentStudents.length / record.totalStudents) * 100)}%
+                            </div>
+                            <div className="text-sm text-purple-500">Rate</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">📋</div>
+                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No Attendance Records Today</h3>
+                    <p className="text-gray-500">Drivers haven't submitted attendance yet today.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -53,7 +53,7 @@ export default function DriverLogin() {
 
       <div className="relative bg-white/95 backdrop-blur-lg p-8 rounded-3xl shadow-2xl w-full max-w-md transform hover:scale-105 transition-all duration-300 border border-white/20">
         <div className="text-center mb-8">
-          <div className="text-6xl mb-4 animate-bounce">🚗</div>
+          <div className="text-6xl mb-4 animate-bounce ">🚗</div>
           <h2 className="text-3xl font-bold gradient-text-green mb-2">Driver Portal</h2>
           <p className="text-gray-600">Manage routes and attendance</p>
           <div className="w-20 h-1 bg-gradient-to-r from-green-500 to-emerald-500 mx-auto mt-2 rounded-full"></div>

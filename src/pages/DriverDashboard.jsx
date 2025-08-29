@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AttendanceDB } from '../utils/attendanceDB.js';
 
 export default function DriverDashboard() {
   const [students, setStudents] = useState([]);
   const [attendance, setAttendance] = useState({});
   const [driverData, setDriverData] = useState(null);
   const navigate = useNavigate();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState('');
 
   useEffect(() => {
     const driver = JSON.parse(localStorage.getItem('driverData') || '{}');
@@ -34,12 +37,62 @@ export default function DriverDashboard() {
     }));
   };
 
-  const submitAttendance = () => {
-    const presentStudents = Object.entries(attendance)
-      .filter(([_, isPresent]) => isPresent)
-      .map(([rollNo, _]) => rollNo);
-    
-    alert(`Attendance submitted for ${presentStudents.length} students: ${presentStudents.join(', ')}`);
+  const submitAttendance = async () => {
+    setIsSubmitting(true);
+    setSubmitMessage('');
+
+    try {
+      const presentStudents = Object.entries(attendance)
+        .filter(([_, isPresent]) => isPresent)
+        .map(([rollNo, _]) => {
+          const student = students.find(s => s.rollNo === rollNo);
+          return {
+            rollNo: rollNo,
+            name: student?.name || '',
+            email: student?.email || ''
+          };
+        });
+
+      const absentStudents = Object.entries(attendance)
+        .filter(([_, isPresent]) => !isPresent)
+        .map(([rollNo, _]) => {
+          const student = students.find(s => s.rollNo === rollNo);
+          return {
+            rollNo: rollNo,
+            name: student?.name || '',
+            email: student?.email || ''
+          };
+        });
+
+      const attendanceData = {
+        driverId: driverData.id,
+        driverName: driverData.name,
+        busId: driverData.busId,
+        presentStudents: presentStudents,
+        absentStudents: absentStudents,
+        totalStudents: students.length,
+        route: driverData.busId === '66d0123456a1b2c3d4e5f601' ? 'Route A - City Center to College' : 'Route B - Airport to College',
+        notes: `Attendance taken by ${driverData.name}`
+      };
+
+      const result = await AttendanceDB.saveAttendance(attendanceData);
+      
+      if (result.success) {
+        setSubmitMessage(`✅ Attendance submitted successfully! Record ID: ${result.recordId}`);
+        // Reset attendance after successful submission
+        const resetAttendance = {};
+        students.forEach(student => {
+          resetAttendance[student.rollNo] = false;
+        });
+        setAttendance(resetAttendance);
+      } else {
+        setSubmitMessage(`❌ Error submitting attendance: ${result.error}`);
+      }
+    } catch (error) {
+      setSubmitMessage(`❌ Error submitting attendance: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleLogout = () => {
@@ -93,32 +146,54 @@ export default function DriverDashboard() {
           
           <div className="space-y-3">
             {students.map(student => (
-              <div key={student.rollNo} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+              <div key={student.rollNo} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200">
                 <div>
-                  <p className="font-medium">{student.name}</p>
+                  <p className="font-medium text-lg">{student.name}</p>
                   <p className="text-sm text-gray-600">{student.rollNo}</p>
                 </div>
-                <label className="flex items-center">
+                <label className="flex items-center cursor-pointer">
                   <input
                     type="checkbox"
                     checked={attendance[student.rollNo] || false}
                     onChange={() => toggleAttendance(student.rollNo)}
-                    className="mr-2 w-5 h-5"
+                    className="mr-3 w-6 h-6 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500"
                   />
-                  <span className={attendance[student.rollNo] ? 'text-green-600' : 'text-gray-400'}>
-                    {attendance[student.rollNo] ? 'Present' : 'Absent'}
+                  <span className={`font-semibold text-lg ${attendance[student.rollNo] ? 'text-green-600' : 'text-gray-400'}`}>
+                    {attendance[student.rollNo] ? '✅ Present' : '❌ Absent'}
                   </span>
                 </label>
               </div>
             ))}
           </div>
 
-          <div className="mt-6">
+          {submitMessage && (
+            <div className={`mt-6 p-4 rounded-xl ${
+              submitMessage.includes('✅') 
+                ? 'bg-green-50 border border-green-200 text-green-800' 
+                : 'bg-red-50 border border-red-200 text-red-800'
+            }`}>
+              {submitMessage}
+            </div>
+          )}
+
+          <div className="mt-8">
             <button
               onClick={submitAttendance}
-              className="w-full bg-green-500 text-white py-3 rounded-lg hover:bg-green-600"
+              disabled={isSubmitting}
+              className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all duration-300 transform hover:scale-105 ${
+                isSubmitting 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-xl'
+              }`}
             >
-              Submit Attendance
+              {isSubmitting ? (
+                <div className="flex items-center justify-center">
+                  <div className="spinner mr-3"></div>
+                  Submitting Attendance...
+                </div>
+              ) : (
+                '📤 Submit Attendance to Database'
+              )}
             </button>
           </div>
         </div>

@@ -11,6 +11,7 @@ import StudentsList from "./pages/StudentsList";
 import StudentDashboard from "./pages/StudentDashboard";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import DriverDashboard from "./pages/DriverDashboard.jsx";
+import AttendanceRecords from "./pages/AttendanceRecords.jsx";
 
 function App() {
   const [count, setCount] = useState(0)
@@ -26,6 +27,7 @@ function App() {
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/driver/dashboard" element={<DriverDashboard />} />
         <Route path="/student/dashboard" element={<StudentDashboard />} />
+        <Route path="/attendance/records" element={<AttendanceRecords />} />
       </Routes>
     </Router>
   )
