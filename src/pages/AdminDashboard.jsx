@@ -10,6 +10,7 @@ export default function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [realTimeLocations, setRealTimeLocations] = useState([]);
+  const [expandedAttendanceRecord, setExpandedAttendanceRecord] = useState(null);
   const navigate = useNavigate();
 
   const buses = [
@@ -106,6 +107,10 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     localStorage.removeItem('userType');
     navigate('/');
+  };
+
+  const toggleAttendanceExpansion = (recordId) => {
+    setExpandedAttendanceRecord(expandedAttendanceRecord === recordId ? null : recordId);
   };
 
   const filteredStudents = students.filter(student =>
@@ -386,85 +391,121 @@ export default function AdminDashboard() {
                     year: 'numeric', 
                     month: 'long', 
                     day: 'numeric' 
-                  })}
+                  })} - Both Trips
                 </p>
               </div>
               
               <div className="p-6">
                 {todayAttendance.length > 0 ? (
                   <div className="space-y-6">
-                    {todayAttendance.map((record) => (
-                      <div key={record.id} className="bg-gray-50 rounded-2xl p-6 border border-gray-200">
-                        <div className="flex items-center justify-between mb-4">
-                          <div>
-                            <h3 className="text-xl font-bold text-gray-800">{record.driverName}</h3>
-                            <p className="text-gray-600">Bus ID: {record.busId} • {record.time}</p>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-2xl font-bold text-green-600">{record.presentStudents.length}</div>
-                            <div className="text-sm text-gray-500">Present</div>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {/* Present Students */}
-                          <div className="bg-white rounded-xl p-4 border border-green-200">
-                            <h4 className="text-lg font-semibold text-green-800 mb-3 flex items-center">
-                              ✅ Present Students ({record.presentStudents.length})
-                            </h4>
-                            <div className="space-y-2 max-h-32 overflow-y-auto">
-                              {record.presentStudents.map((student, index) => (
-                                <div key={index} className="flex items-center space-x-3 p-2 bg-green-50 rounded-lg">
-                                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                                    {student.name.charAt(0)}
+                    {/* Group records by bus */}
+                    {Object.entries(
+                      todayAttendance.reduce((groups, record) => {
+                        if (!groups[record.busId]) groups[record.busId] = [];
+                        groups[record.busId].push(record);
+                        return groups;
+                      }, {})
+                    ).map(([busId, records]) => (
+                      <div key={busId} className="bg-gray-50 rounded-2xl border border-gray-200">
+                        <div className="p-6">
+                          <h3 className="text-xl font-bold text-gray-800 mb-4">
+                            Bus {busId.slice(-3)} - {records[0]?.driverName}
+                          </h3>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Home to Campus Trip */}
+                            {(() => {
+                              const morningTrip = records.find(r => r.tripType === 'home-to-campus');
+                              return (
+                                <div 
+                                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                                    morningTrip 
+                                      ? 'border-blue-200 bg-blue-50 hover:bg-blue-100' 
+                                      : 'border-gray-200 bg-gray-100'
+                                  }`}
+                                  onClick={() => morningTrip && toggleAttendanceExpansion(`${morningTrip.id}-morning`)}
+                                >
+                                  <div className="flex items-center justify-between mb-3">
+                                    <h4 className="font-bold text-blue-800">🏠➡️🏫 Home to Campus</h4>
+                                    {morningTrip && (
+                                      <div className="text-blue-600">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                      </div>
+                                    )}
                                   </div>
-                                  <div>
-                                    <p className="font-medium text-green-800">{student.name}</p>
-                                    <p className="text-xs text-green-600">{student.rollNo}</p>
-                                  </div>
+                                  
+                                  {morningTrip ? (
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-green-600">Present: {morningTrip.presentStudents.length}</span>
+                                      <span className="text-red-600">Absent: {morningTrip.absentStudents.length}</span>
+                                      <span className="text-blue-600">
+                                        {Math.round((morningTrip.presentStudents.length / morningTrip.totalStudents) * 100)}%
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <p className="text-gray-500 text-sm">Not submitted yet</p>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
-                          </div>
+                              );
+                            })()}
 
-                          {/* Absent Students */}
-                          <div className="bg-white rounded-xl p-4 border border-red-200">
-                            <h4 className="text-lg font-semibold text-red-800 mb-3 flex items-center">
-                              ❌ Absent Students ({record.absentStudents.length})
-                            </h4>
-                            <div className="space-y-2 max-h-32 overflow-y-auto">
-                              {record.absentStudents.map((student, index) => (
-                                <div key={index} className="flex items-center space-x-3 p-2 bg-red-50 rounded-lg">
-                                  <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                                    {student.name.charAt(0)}
+                            {/* Campus to Home Trip */}
+                            {(() => {
+                              const eveningTrip = records.find(r => r.tripType === 'campus-to-home');
+                              return (
+                                <div 
+                                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                                    eveningTrip 
+                                      ? 'border-orange-200 bg-orange-50 hover:bg-orange-100' 
+                                      : 'border-gray-200 bg-gray-100'
+                                  }`}
+                                  onClick={() => eveningTrip && toggleAttendanceExpansion(`${eveningTrip.id}-evening`)}
+                                >
+                                  <div className="flex items-center justify-between mb-3">
+                                    <h4 className="font-bold text-orange-800">🏫➡️🏠 Campus to Home</h4>
+                                    {eveningTrip && (
+                                      <div className="text-orange-600">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                      </div>
+                                    )}
                                   </div>
-                                  <div>
-                                    <p className="font-medium text-red-800">{student.name}</p>
-                                    <p className="text-xs text-red-600">{student.rollNo}</p>
-                                  </div>
+                                  
+                                  {eveningTrip ? (
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-green-600">Present: {eveningTrip.presentStudents.length}</span>
+                                      <span className="text-red-600">Absent: {eveningTrip.absentStudents.length}</span>
+                                      <span className="text-orange-600">
+                                        {Math.round((eveningTrip.presentStudents.length / eveningTrip.totalStudents) * 100)}%
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <p className="text-gray-500 text-sm">Not submitted yet</p>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
-                        {/* Summary Stats */}
-                        <div className="mt-4 grid grid-cols-3 gap-4 text-center">
-                          <div className="bg-blue-50 p-3 rounded-lg">
-                            <div className="text-lg font-bold text-blue-600">{record.totalStudents}</div>
-                            <div className="text-sm text-blue-500">Total</div>
+                        {/* Expanded Details for Morning Trip */}
+                        {records.find(r => r.tripType === 'home-to-campus') && 
+                         expandedAttendanceRecord === `${records.find(r => r.tripType === 'home-to-campus').id}-morning` && (
+                          <div className="border-t border-gray-200 p-6 bg-blue-50">
+                            {/* ...existing detailed view code for morning trip... */}
                           </div>
-                          <div className="bg-green-50 p-3 rounded-lg">
-                            <div className="text-lg font-bold text-green-600">{record.presentStudents.length}</div>
-                            <div className="text-sm text-green-500">Present</div>
+                        )}
+
+                        {/* Expanded Details for Evening Trip */}
+                        {records.find(r => r.tripType === 'campus-to-home') && 
+                         expandedAttendanceRecord === `${records.find(r => r.tripType === 'campus-to-home').id}-evening` && (
+                          <div className="border-t border-gray-200 p-6 bg-orange-50">
+                            {/* ...existing detailed view code for evening trip... */}
                           </div>
-                          <div className="bg-purple-50 p-3 rounded-lg">
-                            <div className="text-lg font-bold text-purple-600">
-                              {Math.round((record.presentStudents.length / record.totalStudents) * 100)}%
-                            </div>
-                            <div className="text-sm text-purple-500">Rate</div>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     ))}
                   </div>

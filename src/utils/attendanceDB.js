@@ -6,7 +6,7 @@ export class AttendanceDB {
       // Get existing records
       const existingData = await this.getAttendanceRecords();
       
-      // Create new attendance record
+      // Create new attendance record with trip type
       const newRecord = {
         id: Date.now().toString(),
         driverId: attendanceData.driverId,
@@ -15,6 +15,7 @@ export class AttendanceDB {
         date: new Date().toISOString().split('T')[0], // YYYY-MM-DD
         time: new Date().toLocaleTimeString(),
         timestamp: new Date().toISOString(),
+        tripType: attendanceData.tripType || 'home-to-campus', // 'home-to-campus' or 'campus-to-home'
         presentStudents: attendanceData.presentStudents,
         absentStudents: attendanceData.absentStudents,
         totalStudents: attendanceData.totalStudents,
@@ -22,8 +23,21 @@ export class AttendanceDB {
         notes: attendanceData.notes || ''
       };
 
-      // Add to existing records
-      existingData.attendanceRecords.unshift(newRecord); // Add to beginning
+      // Check if there's already a record for this bus, date, and trip type
+      const existingRecordIndex = existingData.attendanceRecords.findIndex(record => 
+        record.busId === newRecord.busId && 
+        record.date === newRecord.date && 
+        record.tripType === newRecord.tripType
+      );
+
+      if (existingRecordIndex !== -1) {
+        // Update existing record
+        existingData.attendanceRecords[existingRecordIndex] = newRecord;
+      } else {
+        // Add new record
+        existingData.attendanceRecords.unshift(newRecord);
+      }
+      
       existingData.lastUpdated = new Date().toISOString();
 
       // Save to localStorage (simulating database)
@@ -65,6 +79,24 @@ export class AttendanceDB {
       return data.attendanceRecords.filter(record => record.driverId === driverId);
     } catch (error) {
       console.error('Error getting driver attendance:', error);
+      return [];
+    }
+  }
+
+  static async getAttendanceByBusAndDate(busId, date, tripType = null) {
+    try {
+      const data = await this.getAttendanceRecords();
+      let filtered = data.attendanceRecords.filter(record => 
+        record.busId === busId && record.date === date
+      );
+      
+      if (tripType) {
+        filtered = filtered.filter(record => record.tripType === tripType);
+      }
+      
+      return filtered;
+    } catch (error) {
+      console.error('Error getting attendance by bus and date:', error);
       return [];
     }
   }
