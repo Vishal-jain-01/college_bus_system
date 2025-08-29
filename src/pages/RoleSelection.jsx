@@ -79,16 +79,6 @@ export default function RoleSelection() {
           <p className="text-lg">Secure • Reliable • Real-time</p>
         </div>
       </div>
-
-      <style jsx>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 0.2; }
-          50% { transform: translateY(-30px) rotate(180deg); opacity: 0.5; }
-        }
-        .animate-float {
-          animation: float 8s ease-in-out infinite;
-        }
-      `}</style>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AttendanceDB } from '../utils/attendanceDB.js';
+import { LocationService } from '../utils/locationService.js';
 
 export default function DriverDashboard() {
   const [students, setStudents] = useState([]);
@@ -9,6 +10,10 @@ export default function DriverDashboard() {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
+  const [isTracking, setIsTracking] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [locationError, setLocationError] = useState(null);
+  const [watchId, setWatchId] = useState(null);
 
   useEffect(() => {
     const driver = JSON.parse(localStorage.getItem('driverData') || '{}');
@@ -95,6 +100,50 @@ export default function DriverDashboard() {
     }
   };
 
+  const startLocationTracking = async () => {
+    try {
+      setLocationError(null);
+      
+      // Get initial location
+      const initialLocation = await LocationService.getCurrentRealLocation();
+      setCurrentLocation(initialLocation);
+      
+      // Start continuous tracking
+      const id = LocationService.startRealTimeTracking(
+        driverData.id,
+        driverData.busId,
+        (locationData) => {
+          setCurrentLocation(locationData);
+          console.log('New location:', locationData);
+        }
+      );
+      
+      setWatchId(id);
+      setIsTracking(true);
+      
+    } catch (error) {
+      setLocationError(error.message);
+      console.error('Location tracking error:', error);
+    }
+  };
+
+  const stopLocationTracking = () => {
+    if (watchId) {
+      LocationService.stopRealTimeTracking(watchId);
+      setWatchId(null);
+      setIsTracking(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount
+      if (watchId) {
+        LocationService.stopRealTimeTracking(watchId);
+      }
+    };
+  }, [watchId]);
+
   const handleLogout = () => {
     localStorage.removeItem('userType');
     localStorage.removeItem('driverData');
@@ -138,6 +187,58 @@ export default function DriverDashboard() {
       </div>
 
       <div className="relative p-6">
+        {/* GPS Tracking Card */}
+        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-8 mb-8 border border-white/20 card-hover">
+          <h2 className="text-2xl font-bold mb-6 gradient-text-green flex items-center">
+            📍 <span className="ml-3">GPS Location Tracking</span>
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div className="flex items-center space-x-4 mb-4">
+                <button
+                  onClick={isTracking ? stopLocationTracking : startLocationTracking}
+                  className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
+                    isTracking 
+                      ? 'bg-red-500 hover:bg-red-600 text-white' 
+                      : 'bg-green-500 hover:bg-green-600 text-white'
+                  }`}
+                >
+                  {isTracking ? '⏹️ Stop Tracking' : '▶️ Start Tracking'}
+                </button>
+                <div className="flex items-center">
+                  <div className={`w-3 h-3 rounded-full mr-2 ${isTracking ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                  <span className={isTracking ? 'text-green-600' : 'text-gray-500'}>
+                    {isTracking ? 'Live Tracking' : 'Tracking Stopped'}
+                  </span>
+                </div>
+              </div>
+
+              {locationError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+                  <p>❌ {locationError}</p>
+                  <p className="text-sm mt-1">Please enable location permissions in your browser</p>
+                </div>
+              )}
+            </div>
+
+            <div>
+              {currentLocation && (
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                  <h4 className="font-semibold text-blue-800 mb-3">Current Location</h4>
+                  <div className="space-y-2 text-sm">
+                    <p><strong>Latitude:</strong> {currentLocation.lat.toFixed(6)}</p>
+                    <p><strong>Longitude:</strong> {currentLocation.lng.toFixed(6)}</p>
+                    <p><strong>Speed:</strong> {currentLocation.speed ? `${(currentLocation.speed * 3.6).toFixed(1)} km/h` : 'N/A'}</p>
+                    <p><strong>Accuracy:</strong> {currentLocation.accuracy ? `${currentLocation.accuracy.toFixed(0)}m` : 'N/A'}</p>
+                    <p><strong>Last Update:</strong> {new Date(currentLocation.timestamp).toLocaleTimeString()}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-8 mb-8 border border-white/20 card-hover">
           <h2 className="text-2xl font-bold mb-6 gradient-text-green flex items-center">
             📋 <span className="ml-3">Take Attendance</span>

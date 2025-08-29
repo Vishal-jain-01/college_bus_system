@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AttendanceDB } from '../utils/attendanceDB.js';
+import { LocationService } from '../utils/locationService.js';
+import GoogleMap from '../components/GoogleMap.jsx';
 
 export default function AdminDashboard() {
   const [students, setStudents] = useState([]);
   const [activeTab, setActiveTab] = useState('buses');
   const [searchTerm, setSearchTerm] = useState('');
   const [todayAttendance, setTodayAttendance] = useState([]);
+  const [realTimeLocations, setRealTimeLocations] = useState([]);
   const navigate = useNavigate();
 
   const buses = [
@@ -37,6 +40,48 @@ export default function AdminDashboard() {
       .catch(err => console.error('Error loading student data:', err));
     
     loadTodayAttendance();
+
+    // Load real-time locations
+    const loadRealTimeLocations = () => {
+      const locations = LocationService.getAllRealLocations();
+      setRealTimeLocations(locations);
+    };
+
+    loadRealTimeLocations();
+    const locationInterval = setInterval(loadRealTimeLocations, 5000);
+
+    return () => {
+      clearInterval(locationInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Load real-time locations every 10 seconds
+    const loadRealTimeLocations = () => {
+      const locations = LocationService.getAllRealLocations();
+      
+      // If no real GPS locations, use simulated ones
+      if (locations.length === 0) {
+        const simulatedLocations = LocationService.getAllBusLocations();
+        const enhancedLocations = simulatedLocations.map(loc => ({
+          ...loc.location,
+          busId: loc.busId,
+          driverId: `D${loc.busId.slice(-3)}`,
+          busNumber: LocationService.busInfo[loc.busId]?.busNumber,
+          route: LocationService.busInfo[loc.busId]?.route
+        }));
+        setRealTimeLocations(enhancedLocations);
+      } else {
+        setRealTimeLocations(locations);
+      }
+    };
+
+    loadRealTimeLocations();
+    const locationInterval = setInterval(loadRealTimeLocations, 10000); // 10 seconds
+
+    return () => {
+      clearInterval(locationInterval);
+    };
   }, []);
 
   const loadTodayAttendance = async () => {
@@ -185,6 +230,17 @@ export default function AdminDashboard() {
             >
               <span className="text-2xl">📋</span>
               <span>Today's Attendance</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('locations')}
+              className={`px-8 py-4 rounded-xl font-bold transition-all duration-300 flex items-center space-x-3 ${
+                activeTab === 'locations' 
+                  ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-xl transform scale-105' 
+                  : 'text-gray-600 hover:bg-orange-50 hover:text-orange-600'
+              }`}
+            >
+              <span className="text-2xl">📍</span>
+              <span>Real-Time Locations</span>
             </button>
           </div>
         </div>
@@ -417,6 +473,127 @@ export default function AdminDashboard() {
                     <div className="text-6xl mb-4">📋</div>
                     <h3 className="text-xl font-semibold text-gray-600 mb-2">No Attendance Records Today</h3>
                     <p className="text-gray-500">Drivers haven't submitted attendance yet today.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Real-Time Locations Tab */}
+        {activeTab === 'locations' && (
+          <div className="animate-fadeIn">
+            <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl overflow-hidden border border-white/20">
+              <div className="p-8 bg-gradient-to-r from-orange-500 via-orange-600 to-red-600">
+                <h2 className="text-3xl font-bold text-white mb-4 flex items-center">
+                  📍 <span className="ml-3">Real-Time GPS Locations</span>
+                </h2>
+                <p className="text-orange-100 text-lg">Live tracking from driver mobile phones</p>
+              </div>
+              
+              <div className="p-6">
+                {realTimeLocations.length > 0 ? (
+                  <div className="space-y-8">
+                    {realTimeLocations.map((location) => (
+                      <div key={location.busId} className="bg-gray-50 rounded-2xl p-6 border border-gray-200">
+                        <div className="flex items-center justify-between mb-6">
+                          <h3 className="text-2xl font-bold text-gray-800">Bus {location.busId.slice(-3)}</h3>
+                          <div className="flex items-center">
+                            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse mr-2"></div>
+                            <span className="text-green-600 font-semibold">Live GPS</span>
+                          </div>
+                        </div>
+
+                        {/* Map View - Same as Student Dashboard */}
+                        <div className="mb-6 h-64 rounded-xl overflow-hidden border border-gray-200">
+                          <GoogleMap
+                            busLocations={[{
+                              id: location.busId,
+                              lat: location.lat,
+                              lng: location.lng,
+                              busNumber: `BUS-${location.busId.slice(-3)}`,
+                              driver: location.busId === '66d0123456a1b2c3d4e5f601' ? 'Rajesh Kumar' : 'Suresh Singh',
+                              route: location.busId === '66d0123456a1b2c3d4e5f601' 
+                                ? 'Route A - City Center to College'
+                                : 'Route B - Airport to College',
+                              speed: location.speed,
+                              name: `Current Location`,
+                              nextStop: 'Next Stop',
+                              estimatedArrival: '5:30'
+                            }]}
+                            center={{ lat: location.lat, lng: location.lng }}
+                            zoom={15}
+                          />
+                        </div>
+
+                        {/* Location Details */}
+                        <div className="bg-gradient-to-br from-blue-50 to-indigo-100 p-6 rounded-2xl border border-blue-200">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-xl font-bold text-blue-800 flex items-center">
+                              🗺️ <span className="ml-2">Live Location Details</span>
+                            </h4>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-green-600 font-semibold">Live</span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div className="bg-white p-3 rounded-lg">
+                              <span className="font-semibold text-gray-700">Latitude</span>
+                              <p className="text-blue-600 font-mono">{location.lat.toFixed(6)}</p>
+                            </div>
+                            <div className="bg-white p-3 rounded-lg">
+                              <span className="font-semibold text-gray-700">Longitude</span>
+                              <p className="text-blue-600 font-mono">{location.lng.toFixed(6)}</p>
+                            </div>
+                            <div className="bg-white p-3 rounded-lg">
+                              <span className="font-semibold text-gray-700">Speed</span>
+                              <p className="text-green-600 font-semibold">
+                                {location.speed ? `${(location.speed * 3.6).toFixed(1)} km/h` : 'Stationary'}
+                              </p>
+                            </div>
+                            <div className="bg-white p-3 rounded-lg">
+                              <span className="font-semibold text-gray-700">Accuracy</span>
+                              <p className="text-purple-600">
+                                {location.accuracy ? `${location.accuracy.toFixed(0)}m` : 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="mt-4 pt-4 border-t border-blue-200">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-semibold text-gray-700">Last Update:</span>
+                                <p className="text-gray-600">{new Date(location.timestamp).toLocaleString()}</p>
+                              </div>
+                              <button
+                                onClick={() => window.open(`https://www.google.com/maps?q=${location.lat},${location.lng}`, '_blank')}
+                                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center space-x-2"
+                              >
+                                <span>📍</span>
+                                <span>View on Google Maps</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">📍</div>
+                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No Real-Time Locations</h3>
+                    <p className="text-gray-500 mb-4">Drivers need to enable GPS tracking on their devices</p>
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 max-w-md mx-auto">
+                      <h4 className="font-semibold text-blue-800 mb-2">How to Enable GPS Tracking:</h4>
+                      <ol className="text-sm text-blue-700 text-left space-y-1">
+                        <li>1. Driver logs into their dashboard</li>
+                        <li>2. Clicks "Start Tracking" button</li>
+                        <li>3. Allows location permissions</li>
+                        <li>4. Location appears here in real-time</li>
+                      </ol>
+                    </div>
                   </div>
                 )}
               </div>

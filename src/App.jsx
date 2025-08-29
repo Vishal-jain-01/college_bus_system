@@ -12,6 +12,7 @@ import StudentDashboard from "./pages/StudentDashboard";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import DriverDashboard from "./pages/DriverDashboard.jsx";
 import AttendanceRecords from "./pages/AttendanceRecords.jsx";
+import LiveMap from "./pages/LiveMap.jsx";
 
 function App() {
   const [count, setCount] = useState(0)
@@ -28,6 +29,7 @@ function App() {
         <Route path="/driver/dashboard" element={<DriverDashboard />} />
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/attendance/records" element={<AttendanceRecords />} />
+        <Route path="/live-map" element={<LiveMap />} />
       </Routes>
     </Router>
   )
