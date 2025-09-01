@@ -5,18 +5,6 @@ import { LocationService } from '../utils/locationService.js';
 import { AttendanceDB } from '../utils/attendanceDB.js';
 import GoogleMap from '../components/GoogleMap.jsx';
 
-// Helper function to calculate distance between two coordinates (Haversine formula)
-const calculateDistance = (lat1, lng1, lat2, lng2) => {
-  const R = 6371; // Earth's radius in kilometers
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in kilometers
-};
-
 // Helper function to get user's current location
 const getUserCurrentLocation = () => {
   return new Promise((resolve, reject) => {
@@ -93,36 +81,6 @@ export default function StudentDashboard() {
           };
           
           console.log('✅ Using location for student dashboard:', enhancedLocation);
-          
-          // Calculate distances if we have GPS coordinates and route stops
-          if (enhancedLocation.lat && enhancedLocation.lng && busRoute && busRoute.stops) {
-            const currentLat = parseFloat(enhancedLocation.lat);
-            const currentLng = parseFloat(enhancedLocation.lng);
-            
-            // Find current stop (closest to bus)
-            let minDistance = Infinity;
-            let currentStopIndex = 0;
-            
-            busRoute.stops.forEach((stop, index) => {
-              const distance = calculateDistance(currentLat, currentLng, stop.lat, stop.lng);
-              if (distance < minDistance) {
-                minDistance = distance;
-                currentStopIndex = index;
-              }
-            });
-            
-            // Calculate distances for display
-            const distanceToCurrentStop = minDistance;
-            const distanceToNextStop = currentStopIndex < busRoute.stops.length - 1 
-              ? calculateDistance(currentLat, currentLng, busRoute.stops[currentStopIndex + 1].lat, busRoute.stops[currentStopIndex + 1].lng)
-              : null;
-            
-            // Add distance information to enhanced location
-            enhancedLocation.distanceToCurrentStop = distanceToCurrentStop;
-            enhancedLocation.distanceToNextStop = distanceToNextStop;
-            enhancedLocation.currentStopIndex = currentStopIndex;
-          }
-          
           setStudentBusLocation(enhancedLocation);
           console.log('Driver GPS location loaded:', enhancedLocation);
           
@@ -361,40 +319,9 @@ export default function StudentDashboard() {
                         <p className="text-xl font-bold text-green-700 mb-2">
                           {studentBusLocation.currentStop || 'En Route'}
                         </p>
-                        <p className="text-sm text-gray-600 mb-2">
+                        <p className="text-sm text-gray-600">
                           <strong>Next Stop:</strong> {studentBusLocation.nextStop || 'Unknown'}
                         </p>
-                        
-                        {/* Distance Information */}
-                        {studentBusLocation.distanceToCurrentStop !== undefined && (
-                          <div className="mb-2">
-                            <p className="text-sm text-blue-600">
-                              <strong>📏 Distance to Current Stop:</strong> {(studentBusLocation.distanceToCurrentStop * 1000).toFixed(0)}m
-                            </p>
-                          </div>
-                        )}
-                        
-                        {studentBusLocation.distanceToNextStop !== undefined && (
-                          <div className="mb-2">
-                            <p className="text-sm text-purple-600">
-                              <strong>📍 Distance to Next Stop:</strong> {(studentBusLocation.distanceToNextStop * 1000).toFixed(0)}m
-                            </p>
-                          </div>
-                        )}
-                        
-                        {/* Speed and Accuracy Info */}
-                        {studentBusLocation.speed !== undefined && (
-                          <p className="text-sm text-orange-600">
-                            <strong>🚌 Current Speed:</strong> {(studentBusLocation.speed * 3.6).toFixed(1)} km/h
-                          </p>
-                        )}
-                        
-                        {studentBusLocation.accuracy && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            GPS Accuracy: ±{studentBusLocation.accuracy.toFixed(0)}m
-                          </p>
-                        )}
-                        
                         {studentBusLocation.estimatedArrival && (
                           <p className="text-sm text-blue-600">
                             <strong>ETA to Next Stop:</strong> {studentBusLocation.estimatedArrival}
@@ -541,18 +468,6 @@ export default function StudentDashboard() {
                                       <span className="inline-block mt-1 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
                                         Passed
                                       </span>
-                                    )}
-                                    
-                                    {/* Distance Information for Current and Next Stops */}
-                                    {isCurrentStop && studentBusLocation.distanceToCurrentStop !== undefined && (
-                                      <div className="mt-1 px-2 py-1 bg-green-50 text-green-700 text-xs rounded-full">
-                                        📏 {(studentBusLocation.distanceToCurrentStop * 1000).toFixed(0)}m away
-                                      </div>
-                                    )}
-                                    {isNext && studentBusLocation.distanceToNextStop !== undefined && (
-                                      <div className="mt-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
-                                        📍 {(studentBusLocation.distanceToNextStop * 1000).toFixed(0)}m to reach
-                                      </div>
                                     )}
                                   </div>
 
