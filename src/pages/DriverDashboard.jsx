@@ -83,10 +83,22 @@ export default function DriverDashboard() {
                 accuracy: position.coords.accuracy
               };
 
+              console.log('📍 Driver GPS location captured:', location);
+              console.log('🌐 Backend URL:', import.meta.env.VITE_BACKEND_URL);
               setCurrentLocation(location);
               
-              // Send location to LocationService for admin and students to see
-              LocationService.updateBusLocation(driverData.busId, location);
+              // Send location to backend API AND localStorage for cross-device sync
+              LocationService.saveRealLocation(location)
+                .then(result => {
+                  if (result.success) {
+                    console.log('✅ Location posted to backend API successfully');
+                  } else {
+                    console.log('⚠️ Backend API post failed, using localStorage only');
+                  }
+                })
+                .catch(error => {
+                  console.log('⚠️ Location API error:', error.message);
+                });
               
               setLocationError('');
             },
