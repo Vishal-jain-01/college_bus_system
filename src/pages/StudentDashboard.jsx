@@ -35,7 +35,7 @@ export default function StudentDashboard() {
           // Get driver's location using student-specific method (never student's own location)
           const driverLocation = LocationService.getStudentViewLocation(student.bus.$oid);
           
-          if (driverLocation && driverLocation.isRealLocation) {
+          if (driverLocation) {
             console.log('� Driver GPS location found:', driverLocation);
             
             location = {
@@ -53,9 +53,9 @@ export default function StudentDashboard() {
               driverName: driverLocation.driverName,
               busNumber: driverLocation.busNumber
             };
-            isRealLocation = true;
-            locationSource = 'Driver GPS';
-            console.log('✅ Using driver location for student dashboard:', location);
+            isRealLocation = driverLocation.isRealLocation || false;
+            locationSource = driverLocation.locationSource || 'Driver Location';
+            console.log('✅ Using location for student dashboard:', location);
           } else {
             // No driver location available - show default campus location
             console.log('❌ No driver GPS available, showing campus location');
