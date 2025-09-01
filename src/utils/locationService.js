@@ -73,6 +73,65 @@ export class LocationService {
     return null;
   }
 
+  // Student-specific method - only returns driver location or campus default
+  static getStudentViewLocation(busId) {
+    // Try to get driver's real location first
+    const driverLocation = this.getRealLocation(busId);
+    if (driverLocation) {
+      console.log('🚌 Driver location found for student view:', driverLocation);
+      return {
+        lat: driverLocation.lat,
+        lng: driverLocation.lng,
+        currentStop: driverLocation.currentStop,
+        nextStop: driverLocation.nextStop,
+        routeProgress: driverLocation.routeProgress,
+        progressStatus: driverLocation.progressStatus,
+        speed: driverLocation.speed || 0,
+        timestamp: new Date(driverLocation.timestamp).getTime(),
+        name: driverLocation.currentStop || 'Driver Location',
+        lastUpdated: driverLocation.timestamp,
+        isRealLocation: true,
+        locationSource: 'Driver GPS',
+        distanceToCurrentStop: driverLocation.distanceToCurrentStop,
+        distanceToNextStop: driverLocation.distanceToNextStop,
+        driverName: driverLocation.driverName,
+        busNumber: driverLocation.busNumber
+      };
+    }
+
+    // No driver location - return campus default
+    const route = this.busRoutes[busId];
+    const busInfo = this.busInfo[busId];
+    
+    if (route && route.length > 0) {
+      const campusLocation = route[0]; // First stop is campus
+      console.log('🏫 No driver GPS, showing campus default for student');
+      
+      return {
+        lat: campusLocation.lat,
+        lng: campusLocation.lng,
+        currentStop: 'Arrived at MIET Campus',
+        nextStop: 'Waiting for driver to start sharing location',
+        routeProgress: 0,
+        progressStatus: 'waiting',
+        speed: 0,
+        timestamp: Date.now(),
+        name: 'MIET Campus',
+        lastUpdated: new Date().toISOString(),
+        isRealLocation: false,
+        locationSource: 'Campus Default',
+        distanceToCurrentStop: 0,
+        distanceToNextStop: null,
+        driverName: busInfo?.driver || 'Unknown Driver',
+        busNumber: busInfo?.busNumber || 'Unknown Bus'
+      };
+    }
+
+    // No route data available
+    console.log('❌ No route data available for bus:', busId);
+    return null;
+  }
+
   static calculateHeading(from, to) {
     const dLng = (to.lng - from.lng) * Math.PI / 180;
     const lat1 = from.lat * Math.PI / 180;

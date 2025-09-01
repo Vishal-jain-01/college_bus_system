@@ -5,37 +5,6 @@ import { LocationService } from '../utils/locationService.js';
 import { AttendanceDB } from '../utils/attendanceDB.js';
 import GoogleMap from '../components/GoogleMap.jsx';
 
-// Helper function to get user's current location
-const getUserCurrentLocation = () => {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation is not supported by this browser'));
-      return;
-    }
-
-    const options = {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 60000 // Cache for 1 minute
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        resolve({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          timestamp: position.timestamp
-        });
-      },
-      (error) => {
-        reject(error);
-      },
-      options
-    );
-  });
-};
-
 export default function StudentDashboard() {
   const [studentData, setStudentData] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -57,69 +26,95 @@ export default function StudentDashboard() {
     // Load student's bus location using real user location for route progress
     const loadStudentBusLocation = async () => {
       if (student.bus?.$oid) {
-        // Try to get your actual location first
+        // Students should ONLY see driver's location, not their own location
         let location = null;
         let isRealLocation = false;
-        let locationSource = 'Simulated';
+        let locationSource = 'No Driver Location';
         
         try {
-          // Get your actual browser location
-          const userLocation = await getUserCurrentLocation();
-          if (userLocation) {
-            console.log('🗺️ Your GPS coordinates:', userLocation);
-            
-            // Debug: Check route data
-            const route = LocationService.busRoutes[student.bus.$oid];
-            console.log('📍 Available bus stops:', route?.map(stop => `${stop.name} (${stop.lat}, ${stop.lng})`));
-            
-            // Use your location with enhanced route calculations
-            const busInfo = LocationService.busInfo[student.bus.$oid];
-            const currentStop = LocationService.getCurrentStop(userLocation.lat, userLocation.lng, student.bus.$oid);
-            const nextStop = LocationService.getNextStop(userLocation.lat, userLocation.lng, student.bus.$oid);
-            const routeProgress = LocationService.getRouteProgress(userLocation.lat, userLocation.lng, student.bus.$oid);
-            
-            console.log('🔍 Enhanced location calculations:', {
-              currentStop,
-              nextStop,
-              routeProgress: routeProgress.percentage + '%',
-              progressStatus: routeProgress.status,
-              details: routeProgress
-            });
+          // Get driver's location from LocationService (not student's location)
+          const driverLocation = LocationService.getCurrentLocation(student.bus.$oid);
+          
+          if (driverLocation && driverLocation.isRealLocation) {
+            console.log('� Driver GPS location found:', driverLocation);
             
             location = {
-              lat: userLocation.lat,
-              lng: userLocation.lng,
-              currentStop: currentStop,
-              nextStop: nextStop,
-              routeProgress: routeProgress.percentage,
-              progressStatus: routeProgress.status,
-              speed: 0, // Static when using user location
-              accuracy: userLocation.accuracy,
-              timestamp: Date.now(),
-              distanceToCurrentStop: routeProgress.distanceToCurrentStop,
-              distanceToNextStop: routeProgress.distanceToNextStop
+              lat: driverLocation.lat,
+              lng: driverLocation.lng,
+              currentStop: driverLocation.currentStop,
+              nextStop: driverLocation.nextStop,
+              routeProgress: driverLocation.routeProgress,
+              progressStatus: driverLocation.progressStatus,
+              speed: driverLocation.speed || 0,
+              accuracy: driverLocation.accuracy || 0,
+              timestamp: driverLocation.timestamp,
+              distanceToCurrentStop: driverLocation.distanceToCurrentStop,
+              distanceToNextStop: driverLocation.distanceToNextStop,
+              driverName: driverLocation.driverName,
+              busNumber: driverLocation.busNumber
             };
             isRealLocation = true;
-            locationSource = 'Your Location';
-            console.log('✅ Final location object for route progress:', location);
-            console.log('🔧 Route progress value being set:', routeProgress.percentage);
-            console.log('🎯 Is real location flag:', isRealLocation);
+            locationSource = 'Driver GPS';
+            console.log('✅ Using driver location for student dashboard:', location);
+          } else {
+            // No driver location available - show default campus location
+            console.log('❌ No driver GPS available, showing campus location');
+            const busInfo = LocationService.busInfo[student.bus.$oid];
+            const campusLocation = LocationService.busRoutes[student.bus.$oid]?.[0]; // First stop is campus
+            
+            if (campusLocation) {
+              location = {
+                lat: campusLocation.lat,
+                lng: campusLocation.lng,
+                currentStop: 'Arrived at MIET Campus',
+                nextStop: 'Waiting for driver',
+                routeProgress: 0,
+                progressStatus: 'waiting',
+                speed: 0,
+                accuracy: 0,
+                timestamp: Date.now(),
+                distanceToCurrentStop: 0,
+                distanceToNextStop: 0,
+                busNumber: busInfo?.busNumber || 'Unknown Bus',
+                driverName: busInfo?.driver || 'Unknown Driver'
+              };
+              isRealLocation = false;
+              locationSource = 'Campus Default';
+              console.log('🏫 Using default campus location:', location);
+            }
           }
         } catch (error) {
-          console.log('Could not get your location, trying driver GPS:', error.message);
+          console.log('❌ Error getting driver location:', error.message);
           
-          // Fallback to driver GPS location
-          location = LocationService.getRealLocation(student.bus.$oid);
-          if (location) {
-            isRealLocation = true;
-            locationSource = 'Driver GPS';
-            console.log('Using driver GPS location:', location);
+          // If there's an error, show campus default location
+          const busInfo = LocationService.busInfo[student.bus.$oid];
+          const campusLocation = LocationService.busRoutes[student.bus.$oid]?.[0];
+          
+          if (campusLocation) {
+            location = {
+              lat: campusLocation.lat,
+              lng: campusLocation.lng,
+              currentStop: 'Arrived at MIET Campus',
+              nextStop: 'Waiting for driver',
+              routeProgress: 0,
+              progressStatus: 'waiting',
+              speed: 0,
+              accuracy: 0,
+              timestamp: Date.now(),
+              distanceToCurrentStop: 0,
+              distanceToNextStop: 0,
+              busNumber: busInfo?.busNumber || 'Unknown Bus',
+              driverName: busInfo?.driver || 'Unknown Driver'
+            };
+            isRealLocation = false;
+            locationSource = 'Campus Default (Error)';
+            console.log('🏫 Using campus location due to error:', location);
           }
         }
         
-        // Final fallback - only if no driver GPS available
+        // If no location at all, don't set anything
         if (!location) {
-          console.log('❌ No driver GPS available for bus:', student.bus.$oid);
+          console.log('❌ No location data available for bus:', student.bus.$oid);
           setStudentBusLocation(null);
           return;
         }
