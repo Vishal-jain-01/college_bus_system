@@ -175,10 +175,4 @@ app.get("/api/location/health", (req, res) => {
   });
 });
 
-// For Render deployment - listen on PORT environment variable
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Location API endpoints available`);
-  console.log(`🌐 Health check: http://localhost:${PORT}/api/location/health`);
-});
+app.listen(3001, () => console.log("Server running on http://localhost:3001"));

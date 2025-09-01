@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: college-bus-tracking-backend
+    env: node
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        value: mongodb+srv://vishaljaincseaiml2022:MONGO%40PWD@cluster0.d8lb6oj.mongodb.net/bus?retryWrites=true&w=majority&appName=Cluster0
+      - key: PORT
+        value: 3001
+      - key: FRONTEND_URL
+        value: https://college-bus-tracking-system-lime.vercel.app
