@@ -2,7 +2,7 @@ export class LocationService {
   static busRoutes = {
     '66d0123456a1b2c3d4e5f601': [
       { lat: 29.0167, lng: 77.6833, name: 'MIET Campus' },
-      { lat: 29.0456, lng: 77.7042, name: 'rohta bypass' },
+      { lat: 28.99467, lng: 77.65208, name: 'rohta bypass' }, // Updated to your actual location
       { lat: 28.9845, lng: 77.7036, name: 'Meerut Cantt' },
       { lat: 29.1234, lng: 77.7456, name: 'modipuram' }
     ],

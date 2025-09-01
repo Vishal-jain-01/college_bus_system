@@ -865,25 +865,37 @@ export default function AdminDashboard() {
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="grid grid-cols-2 gap-4 text-sm">
                             <div className="bg-white p-3 rounded-lg">
-                              <span className="font-semibold text-gray-700">Latitude</span>
-                              <p className="text-blue-600 font-mono">{location.lat.toFixed(6)}</p>
-                            </div>
-                            <div className="bg-white p-3 rounded-lg">
-                              <span className="font-semibold text-gray-700">Longitude</span>
-                              <p className="text-blue-600 font-mono">{location.lng.toFixed(6)}</p>
-                            </div>
-                            <div className="bg-white p-3 rounded-lg">
-                              <span className="font-semibold text-gray-700">Speed</span>
-                              <p className="text-green-600 font-semibold">
-                                {location.speed ? `${(location.speed * 3.6).toFixed(1)} km/h` : 'Stationary'}
+                              <span className="font-semibold text-gray-700">Current Location</span>
+                              <p className="text-purple-600 font-semibold">
+                                {(() => {
+                                  const busId = location.busId;
+                                  try {
+                                    // Use LocationService to get current stop name
+                                    const currentStop = LocationService.getCurrentStop(location.lat, location.lng, busId);
+                                    return currentStop || 'En Route';
+                                  } catch (error) {
+                                    // Fallback to generic location description
+                                    return 'On Route';
+                                  }
+                                })()}
                               </p>
                             </div>
                             <div className="bg-white p-3 rounded-lg">
-                              <span className="font-semibold text-gray-700">Accuracy</span>
-                              <p className="text-purple-600">
-                                {location.accuracy ? `${location.accuracy.toFixed(0)}m` : 'N/A'}
+                              <span className="font-semibold text-gray-700">Next Stop</span>
+                              <p className="text-blue-600 font-semibold">
+                                {(() => {
+                                  const busId = location.busId;
+                                  try {
+                                    // Use LocationService to get next stop name
+                                    const nextStop = LocationService.getNextStop(location.lat, location.lng, busId);
+                                    return nextStop || 'Final Destination';
+                                  } catch (error) {
+                                    // Fallback to generic description
+                                    return 'Unknown';
+                                  }
+                                })()}
                               </p>
                             </div>
                           </div>
