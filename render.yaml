@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: college-bus-tracking-backend
+    name: bus-tracking-system-backend
     env: node
     buildCommand: cd backend && npm install
     startCommand: cd backend && npm start
