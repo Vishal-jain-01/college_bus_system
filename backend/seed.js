@@ -14,6 +14,7 @@ const __dirname = path.dirname(__filename);
 async function seedData() {
   await mongoose.connect("mongodb://localhost:27017/bus");
 
+  console.log("🔄 Starting database seeding...");
 
   // Clear old data
   await Student.deleteMany();
@@ -21,9 +22,13 @@ async function seedData() {
   await Admin.deleteMany();
   await Driver.deleteMany();
 
+  console.log("🗑️  Cleared existing data");
+
   // Create 2 buses
-  const bus1 = await Bus.create({ busNumber: "BUS-101", route: "Meerut → Campus" });
-  const bus2 = await Bus.create({ busNumber: "BUS-102", route: "Modinagar → Campus" });
+  const bus1 = await Bus.create({ busNumber: "BUS-101", route: "MIET to Muzaffarnagar" });
+  const bus2 = await Bus.create({ busNumber: "BUS-102", route: "MIET to Delhi" });
+
+  console.log(`🚌 Created buses: ${bus1.busNumber} (${bus1._id}) and ${bus2.busNumber} (${bus2._id})`);
 
 
   // Read students from student.json
@@ -31,15 +36,21 @@ async function seedData() {
   const studentsRaw = fs.readFileSync(studentsPath, "utf-8");
   const students = JSON.parse(studentsRaw);
 
+  console.log(`📚 Loaded ${students.length} students from student.json`);
+
   // Read admins from admin.json
-  const adminsPath = path.resolve(__dirname, "../../admin.json");
+  const adminsPath = path.resolve(__dirname, "../admin.json");
   const adminsRaw = fs.readFileSync(adminsPath, "utf-8");
   const admins = JSON.parse(adminsRaw);
 
+  console.log(`👤 Loaded ${admins.length} admins from admin.json`);
+
   // Read drivers from driver.json
-  const driversPath = path.resolve(__dirname, "../../driver.json");
+  const driversPath = path.resolve(__dirname, "../driver.json");
   const driversRaw = fs.readFileSync(driversPath, "utf-8");
   const drivers = JSON.parse(driversRaw);
+
+  console.log(`🚛 Loaded ${drivers.length} drivers from driver.json`);
 
   // Map bus OIDs in student.json to actual bus _ids
   const busMap = {
@@ -48,17 +59,27 @@ async function seedData() {
   };
 
   // Hash each student's password and assign correct bus
-  const studentsToInsert = await Promise.all(students.map(async (student) => {
-    const hashedPassword = await bcrypt.hash(student.password, 10);
-    return {
-      name: student.name,
-      rollNo: student.rollNo,
-      email: student.email,
-      password: hashedPassword,
-      bus: busMap[student.bus.$oid] || bus1._id
-    };
+  const studentsToInsert = await Promise.all(students.map(async (student, index) => {
+    try {
+      const hashedPassword = await bcrypt.hash(student.password, 10);
+      const busId = student.bus?.$oid;
+      if (!busId) {
+        console.warn(`⚠️  Student ${student.name} (index ${index}) has no bus.$oid, assigning to default bus`);
+      }
+      return {
+        name: student.name,
+        rollNo: student.rollNo,
+        email: student.email,
+        password: hashedPassword,
+        bus: busMap[busId] || bus1._id
+      };
+    } catch (error) {
+      console.error(`❌ Error processing student ${student.name} (index ${index}):`, error);
+      throw error;
+    }
   }));
   await Student.insertMany(studentsToInsert);
+  console.log(`✅ Inserted ${studentsToInsert.length} students`);
 
   // Hash each admin's password
   const adminsToInsert = await Promise.all(admins.map(async (admin) => {
@@ -70,19 +91,30 @@ async function seedData() {
     };
   }));
   await Admin.insertMany(adminsToInsert);
+  console.log(`✅ Inserted ${adminsToInsert.length} admins`);
 
   // Hash each driver's password and assign correct bus
-  const driversToInsert = await Promise.all(drivers.map(async (driver) => {
-    const hashedPassword = await bcrypt.hash(driver.password, 10);
-    return {
-      name: driver.name,
-      email: driver.email,
-      password: hashedPassword,
-      phone: driver.phone,
-      bus: busMap[driver.bus.$oid] || bus1._id
-    };
+  const driversToInsert = await Promise.all(drivers.map(async (driver, index) => {
+    try {
+      const hashedPassword = await bcrypt.hash(driver.password, 10);
+      const busId = driver.bus?.$oid;
+      if (!busId) {
+        console.warn(`⚠️  Driver ${driver.name} (index ${index}) has no bus.$oid, assigning to default bus`);
+      }
+      return {
+        name: driver.name,
+        email: driver.email,
+        password: hashedPassword,
+        phone: driver.phone,
+        bus: busMap[busId] || bus1._id
+      };
+    } catch (error) {
+      console.error(`❌ Error processing driver ${driver.name} (index ${index}):`, error);
+      throw error;
+    }
   }));
   await Driver.insertMany(driversToInsert);
+  console.log(`✅ Inserted ${driversToInsert.length} drivers`);
 
   console.log("✅ Database seeded successfully!");
   process.exit();

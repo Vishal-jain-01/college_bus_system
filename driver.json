@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Driver One",
+    "email": "driver1@miet.com",
+    "password": "driver123",
+    "phone": "9876543210",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f601" }
+  },
+  {
+    "name": "Driver Two",
+    "email": "driver2@miet.com",
+    "password": "driver123",
+    "phone": "9876543211",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f602" }
+  }
+]

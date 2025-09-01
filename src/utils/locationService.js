@@ -1,12 +1,10 @@
 export class LocationService {
   static busRoutes = {
     '66d0123456a1b2c3d4e5f601': [
-      { lat: 29.0167, lng: 77.6833, name: 'MIET Campus, Meerut' },
-      { lat: 29.0456, lng: 77.7042, name: 'Meerut Bypass' },
-      { lat: 29.1234, lng: 77.7456, name: 'Partapur' },
-      { lat: 29.1678, lng: 77.8123, name: 'Hastinapur Road' },
-      { lat: 29.4567, lng: 77.9234, name: 'Muzaffarnagar Bypass' },
-      { lat: 29.4700, lng: 77.7100, name: 'Muzaffarnagar City Center' }
+      { lat: 29.0167, lng: 77.6833, name: 'MIET Campus' },
+      { lat: 29.0456, lng: 77.7042, name: 'rohta bypass' },
+      { lat: 28.9845, lng: 77.7036, name: 'Meerut Cantt' },
+      { lat: 29.1234, lng: 77.7456, name: 'modipuram' }
     ],
     '66d0123456a1b2c3d4e5f602': [
       { lat: 29.0167, lng: 77.6833, name: 'MIET Campus, Meerut' },
@@ -25,11 +23,9 @@ export class LocationService {
       driver: 'Rajesh Kumar',
       stops: [
         'MIET Campus',
-        'Meerut Bypass', 
-        'Partapur',
-        'Hastinapur Road',
-        'Muzaffarnagar Bypass',
-        'Muzaffarnagar City Center'
+        'rohta bypass', 
+        'Meerut Cantt',
+        'modipuram'
       ]
     },
     '66d0123456a1b2c3d4e5f602': {

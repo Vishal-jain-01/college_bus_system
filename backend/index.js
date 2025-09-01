@@ -10,7 +10,7 @@ import authRoutes from "./routes/auth.js";
 const app = express();
 
 app.use(cors({
-  origin: "http://localhost:5173",  // frontend URL
+  origin: ["http://localhost:5173", "http://localhost:5174"],  // frontend URLs
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
