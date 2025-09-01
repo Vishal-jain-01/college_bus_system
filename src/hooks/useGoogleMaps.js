@@ -20,8 +20,8 @@ export function useGoogleMaps(apiKey) {
     }
 
     // Only proceed if we have a valid API key
-    if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
-      setError('Please provide a valid Google Maps API key');
+    if (!apiKey) {
+      setError('Please provide a Google Maps API key');
       return;
     }
 

@@ -6,83 +6,51 @@ import GoogleMap from '../components/GoogleMap.jsx';
 
 export default function StudentDashboard() {
   const [studentData, setStudentData] = useState(null);
-  const [busLocation, setBusLocation] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(new Date());
-  const [currentBusLocation, setCurrentBusLocation] = useState(null);
   const [realTimeLocations, setRealTimeLocations] = useState([]);
   const [activeTab, setActiveTab] = useState('location');
   const [studentBusLocation, setStudentBusLocation] = useState(null);
   const navigate = useNavigate();
-  const { isLoaded } = useGoogleMaps('YOUR_GOOGLE_MAPS_API_KEY');
-
-  // Mock bus locations for real-time simulation
-  const busLocations = {
-    '66d0123456a1b2c3d4e5f601': [
-      { lat: 28.6139, lng: 77.2090, address: 'Connaught Place, Delhi', time: '08:00 AM' },
-      { lat: 28.6289, lng: 77.2065, address: 'Rajiv Chowk, Delhi', time: '08:15 AM' },
-      { lat: 28.6328, lng: 77.2197, address: 'Barakhamba Road, Delhi', time: '08:30 AM' },
-      { lat: 28.6562, lng: 77.2410, address: 'Near College Gate', time: '08:45 AM' }
-    ],
-    '66d0123456a1b2c3d4e5f602': [
-      { lat: 28.5562, lng: 77.1000, address: 'IGI Airport, Delhi', time: '08:00 AM' },
-      { lat: 28.5755, lng: 77.1200, address: 'Aerocity, Delhi', time: '08:20 AM' },
-      { lat: 28.6000, lng: 77.1500, address: 'Mahipalpur, Delhi', time: '08:40 AM' },
-      { lat: 28.6562, lng: 77.2410, address: 'Near College Gate', time: '09:00 AM' }
-    ]
-  };
+  const { isLoaded } = useGoogleMaps('AIzaSyDRrEGi2nzH-3W2qqhOCFzZuRms5tGeYvI');
 
   useEffect(() => {
     const student = JSON.parse(localStorage.getItem('studentData') || '{}');
     setStudentData(student);
 
-    // Load only the student's bus real-time location every 10 seconds
+    // Load only the student's bus real-time GPS location every 5 seconds
     const loadStudentBusLocation = () => {
       if (student.bus?.$oid) {
-        // Try to get real GPS location first
-        let location = LocationService.getRealLocation(student.bus.$oid);
+        // Get real GPS location from driver
+        const location = LocationService.getRealLocation(student.bus.$oid);
         
-        // If no real GPS, use simulated location
-        if (!location) {
-          location = LocationService.getCurrentLocation(student.bus.$oid);
-          if (location) {
-            // Add bus info to simulated location
-            const busInfo = LocationService.busInfo[student.bus.$oid];
-            location = {
-              ...location,
-              busId: student.bus.$oid,
-              busNumber: busInfo?.busNumber,
-              route: busInfo?.route,
-              currentStop: LocationService.getCurrentStopFromRoute(0.5, 
-                LocationService.busRoutes[student.bus.$oid]?.[0] || {},
-                LocationService.busRoutes[student.bus.$oid]?.[1] || {}
-              )
-            };
-          }
+        if (location) {
+          // Enhanced real GPS location with bus info
+          const busInfo = LocationService.busInfo[student.bus.$oid];
+          const enhancedLocation = {
+            ...location,
+            busId: student.bus.$oid,
+            busNumber: busInfo?.busNumber || 'Unknown',
+            route: busInfo?.route || 'Unknown Route',
+            driverName: busInfo?.driver || 'Unknown Driver',
+            lastUpdated: new Date(location.lastUpdated).toLocaleTimeString()
+          };
+          
+          setStudentBusLocation(enhancedLocation);
+          console.log('Real GPS location loaded for student:', enhancedLocation);
+        } else {
+          console.log('No real GPS location available for bus:', student.bus.$oid);
+          setStudentBusLocation(null);
         }
-        
-        setStudentBusLocation(location);
       }
     };
 
     // Initial load
     loadStudentBusLocation();
     
-    // Update every 10 seconds
-    const locationInterval = setInterval(loadStudentBusLocation, 10000);
-
-    // Simulate bus location updates for the old system
-    const updateLocation = () => {
-      const locations = busLocations[student.bus?.$oid] || [];
-      const randomLocation = locations[Math.floor(Math.random() * locations.length)];
-      setBusLocation(randomLocation);
-      setLastUpdated(new Date());
-    };
-
-    updateLocation();
-    const interval = setInterval(updateLocation, 30000); // Keep this at 30 seconds for old system
+    // Update every 5 seconds for real-time tracking
+    const locationInterval = setInterval(loadStudentBusLocation, 5000);
 
     return () => {
-      clearInterval(interval);
       clearInterval(locationInterval);
     };
   }, []);
@@ -109,20 +77,6 @@ export default function StudentDashboard() {
       <div className="fixed inset-0 bg-gradient-to-br from-blue-900/80 via-indigo-800/70 to-purple-900/80"></div>
       
       {/* Animated location markers */}
-      <div className="fixed inset-0">
-        {[...Array(15)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-3 h-3 bg-blue-400 rounded-full opacity-30 animate-pulse-custom"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
-            }}
-          ></div>
-        ))}
-      </div>
-
       {/* Header */}
       <div className="relative bg-white/95 backdrop-blur-lg shadow-2xl border-b-4 border-blue-500">
         <div className="px-6 py-6">

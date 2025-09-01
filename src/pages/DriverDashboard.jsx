@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AttendanceDB } from '../utils/attendanceDB.js';
 import { LocationService } from '../utils/locationService.js';
+import { ExcelExportService } from '../utils/excelExport.js';
 
 export default function DriverDashboard() {
   const [students, setStudents] = useState([]);
@@ -9,18 +10,21 @@ export default function DriverDashboard() {
   const [driverData, setDriverData] = useState(null);
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompletingAttendance, setIsCompletingAttendance] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
-  const [isTracking, setIsTracking] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [locationError, setLocationError] = useState(null);
-  const [watchId, setWatchId] = useState(null);
   const [tripType, setTripType] = useState('home-to-campus');
   const [existingRecords, setExistingRecords] = useState({
     'home-to-campus': null,
     'campus-to-home': null
   });
   const [showPresentList, setShowPresentList] = useState(false);
-  const [isCompletingAttendance, setIsCompletingAttendance] = useState(false);
+  const [locallySavedCounts, setLocallySavedCounts] = useState({
+    'home-to-campus': 0,
+    'campus-to-home': 0
+  });
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [isTrackingLocation, setIsTrackingLocation] = useState(false);
+  const [locationError, setLocationError] = useState('');
 
   useEffect(() => {
     const driver = JSON.parse(localStorage.getItem('driverData') || '{}');
@@ -41,9 +45,79 @@ export default function DriverDashboard() {
           initialAttendance[student.rollNo] = false;
         });
         setAttendance(initialAttendance);
+        
+        // Update locally saved counts after students are loaded
+        setTimeout(() => updateLocallySavedCounts(), 100);
       })
       .catch(err => console.error('Error loading student data:', err));
   }, []);
+
+  // Update locally saved counts periodically
+  useEffect(() => {
+    if (driverData?.busId) {
+      updateLocallySavedCounts();
+      const interval = setInterval(updateLocallySavedCounts, 3000); // Check every 3 seconds
+      return () => clearInterval(interval);
+    }
+  }, [driverData]);
+
+  // GPS Location tracking useEffect
+  useEffect(() => {
+    if (!driverData?.busId) return;
+
+    const startLocationTracking = () => {
+      setIsTrackingLocation(true);
+      setLocationError('');
+
+      if (navigator.geolocation) {
+        const trackLocation = () => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const location = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+                timestamp: new Date().toISOString(),
+                busId: driverData.busId,
+                driverName: driverData.name,
+                speed: position.coords.speed || 0,
+                accuracy: position.coords.accuracy
+              };
+
+              setCurrentLocation(location);
+              
+              // Send location to LocationService for admin and students to see
+              LocationService.updateBusLocation(driverData.busId, location);
+              
+              setLocationError('');
+            },
+            (error) => {
+              console.error('Location error:', error);
+              setLocationError(`GPS Error: ${error.message}`);
+              setIsTrackingLocation(false);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 60000
+            }
+          );
+        };
+
+        // Track location immediately
+        trackLocation();
+        
+        // Then track every 10 seconds
+        const locationInterval = setInterval(trackLocation, 10000);
+
+        return () => clearInterval(locationInterval);
+      } else {
+        setLocationError('GPS not supported by this device');
+        setIsTrackingLocation(false);
+      }
+    };
+
+    startLocationTracking();
+  }, [driverData]);
 
   const loadTodayRecords = async (busId) => {
     if (!busId) return;
@@ -69,11 +143,72 @@ export default function DriverDashboard() {
     }
   };
 
+  // Function to update locally saved attendance counts
+  const updateLocallySavedCounts = () => {
+    if (!driverData?.busId) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const morningKey = `attendance_${driverData.busId}_home-to-campus_${today}`;
+    const eveningKey = `attendance_${driverData.busId}_campus-to-home_${today}`;
+    
+    const morningData = localStorage.getItem(morningKey);
+    const eveningData = localStorage.getItem(eveningKey);
+    
+    setLocallySavedCounts({
+      'home-to-campus': morningData ? JSON.parse(morningData).presentStudents.length : 0,
+      'campus-to-home': eveningData ? JSON.parse(eveningData).presentStudents.length : 0
+    });
+
+    // Load saved attendance for current trip type if available
+    const currentKey = `attendance_${driverData.busId}_${tripType}_${today}`;
+    const currentData = localStorage.getItem(currentKey);
+    if (currentData && students.length > 0) {
+      const savedAttendance = JSON.parse(currentData);
+      const loadedAttendance = {};
+      
+      students.forEach(student => {
+        const isPresent = savedAttendance.presentStudents.some(p => p.rollNo === student.rollNo);
+        loadedAttendance[student.rollNo] = isPresent;
+      });
+      
+      setAttendance(loadedAttendance);
+      
+      // Show message if this attendance was already submitted
+      if (savedAttendance.status === 'submitted') {
+        setSubmitMessage(`ℹ️ This ${tripType === 'home-to-campus' ? 'morning' : 'evening'} attendance was already submitted on ${new Date(savedAttendance.submissionTime).toLocaleString()}`);
+      }
+    }
+  };
+
   const handleTripTypeChange = (newTripType) => {
     setTripType(newTripType);
+    setSubmitMessage(''); // Clear any previous messages
     
-    // Load attendance for the selected trip type
-    if (existingRecords[newTripType]) {
+    // First check for locally saved attendance data
+    const today = new Date().toISOString().split('T')[0];
+    const localKey = `attendance_${driverData.busId}_${newTripType}_${today}`;
+    const localData = localStorage.getItem(localKey);
+    
+    if (localData) {
+      // Load from localStorage (driver's saved/submitted data)
+      const savedAttendance = JSON.parse(localData);
+      const loadedAttendance = {};
+      
+      students.forEach(student => {
+        const isPresent = savedAttendance.presentStudents.some(p => p.rollNo === student.rollNo);
+        loadedAttendance[student.rollNo] = isPresent;
+      });
+      
+      setAttendance(loadedAttendance);
+      
+      // Show status message
+      if (savedAttendance.status === 'submitted') {
+        setSubmitMessage(`ℹ️ This ${newTripType === 'home-to-campus' ? 'morning' : 'evening'} attendance was already submitted on ${new Date(savedAttendance.submissionTime).toLocaleString()}`);
+      } else {
+        setSubmitMessage(`💾 Loaded your saved ${newTripType === 'home-to-campus' ? 'morning' : 'evening'} attendance`);
+      }
+    } else if (existingRecords[newTripType]) {
+      // Load from existing records (admin system data)
       const existingAttendance = {};
       students.forEach(student => {
         const isPresent = existingRecords[newTripType].presentStudents.some(p => p.rollNo === student.rollNo);
@@ -97,7 +232,8 @@ export default function DriverDashboard() {
     }));
   };
 
-  const submitAttendance = async () => {
+  // Save attendance locally on driver dashboard
+  const saveAttendanceLocally = async () => {
     setIsSubmitting(true);
     setSubmitMessage('');
 
@@ -133,14 +269,76 @@ export default function DriverDashboard() {
         absentStudents: absentStudents,
         totalStudents: students.length,
         route: driverData.busId === '66d0123456a1b2c3d4e5f601' ? 'Route A - City Center to College' : 'Route B - Airport to College',
-        notes: `${tripType} attendance taken by ${driverData.name}`
+        notes: `${tripType} attendance saved locally by ${driverData.name}`,
+        status: 'saved' // Not yet submitted to admin
       };
 
+      // Save locally in driver's session storage for now
+      const localKey = `attendance_${driverData.busId}_${tripType}_${new Date().toISOString().split('T')[0]}`;
+      localStorage.setItem(localKey, JSON.stringify(attendanceData));
+      
+      setSubmitMessage(`💾 Attendance saved locally! You can submit it when you reach the destination.`);
+      
+      // Update existing records for local display
+      setExistingRecords(prev => ({
+        ...prev,
+        [tripType]: attendanceData
+      }));
+      
+      // Update locally saved counts
+      updateLocallySavedCounts();
+
+    } catch (error) {
+      setSubmitMessage(`❌ Error saving attendance: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Submit attendance to admin dashboard (only when at correct location)
+  const submitAttendanceToAdmin = async () => {
+    setIsCompletingAttendance(true);
+    setSubmitMessage('');
+
+    try {
+      // Check if already submitted
+      if (isCurrentAttendanceSubmitted()) {
+        setSubmitMessage(`ℹ️ This ${tripType === 'home-to-campus' ? 'morning' : 'evening'} attendance was already submitted`);
+        setIsCompletingAttendance(false);
+        return;
+      }
+
+      // Get the locally saved attendance
+      const localKey = `attendance_${driverData.busId}_${tripType}_${new Date().toISOString().split('T')[0]}`;
+      const savedAttendance = localStorage.getItem(localKey);
+      
+      if (!savedAttendance) {
+        setSubmitMessage(`❌ Please save attendance first before submitting!`);
+        return;
+      }
+
+      const attendanceData = JSON.parse(savedAttendance);
+      attendanceData.status = 'submitted'; // Mark as submitted
+      attendanceData.submissionTime = new Date().toISOString();
+      attendanceData.notes = `${tripType} attendance submitted by ${driverData.name}`;
+
+      // Now save to the admin database
       const result = await AttendanceDB.saveAttendance(attendanceData);
       
       if (result.success) {
-        const action = existingRecords[tripType] ? 'updated' : 'submitted';
-        setSubmitMessage(`✅ Attendance ${action} successfully for ${tripType}!`);
+        setSubmitMessage(`✅ Attendance submitted successfully to admin dashboard!`);
+        
+        // Keep the data in localStorage but mark it as submitted
+        const submittedData = JSON.parse(localStorage.getItem(localKey));
+        submittedData.status = 'submitted';
+        submittedData.submissionTime = new Date().toISOString();
+        localStorage.setItem(localKey, JSON.stringify(submittedData));
+        
+        // Don't clear attendance marks - keep them visible for driver reference
+        // This way driver can see what they submitted even after logout/login
+        
+        // Update locally saved counts (they should remain the same)
+        updateLocallySavedCounts();
         
         // Update existing records
         setExistingRecords(prev => ({
@@ -153,53 +351,22 @@ export default function DriverDashboard() {
     } catch (error) {
       setSubmitMessage(`❌ Error submitting attendance: ${error.message}`);
     } finally {
-      setIsSubmitting(false);
+      setIsCompletingAttendance(false);
     }
   };
 
-  const startLocationTracking = async () => {
-    try {
-      setLocationError(null);
-      
-      // Get initial location
-      const initialLocation = await LocationService.getCurrentRealLocation();
-      setCurrentLocation(initialLocation);
-      
-      // Start continuous tracking
-      const id = LocationService.startRealTimeTracking(
-        driverData.id,
-        driverData.busId,
-        (locationData) => {
-          setCurrentLocation(locationData);
-          console.log('New location:', locationData);
-        }
-      );
-      
-      setWatchId(id);
-      setIsTracking(true);
-      
-    } catch (error) {
-      setLocationError(error.message);
-      console.error('Location tracking error:', error);
+  // Check if current trip attendance has already been submitted
+  const isCurrentAttendanceSubmitted = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const localKey = `attendance_${driverData?.busId}_${tripType}_${today}`;
+    const localData = localStorage.getItem(localKey);
+    
+    if (localData) {
+      const savedAttendance = JSON.parse(localData);
+      return savedAttendance.status === 'submitted';
     }
+    return false;
   };
-
-  const stopLocationTracking = () => {
-    if (watchId) {
-      LocationService.stopRealTimeTracking(watchId);
-      setWatchId(null);
-      setIsTracking(false);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      // Cleanup on unmount
-      if (watchId) {
-        LocationService.stopRealTimeTracking(watchId);
-      }
-    };
-  }, [watchId]);
 
   const handleLogout = () => {
     localStorage.removeItem('userType');
@@ -233,23 +400,6 @@ export default function DriverDashboard() {
       });
   };
 
-  const completeAttendanceSubmission = async () => {
-    setIsCompletingAttendance(true);
-    setSubmitMessage('');
-
-    try {
-      const result = await submitAttendance();
-      if (result !== false) {
-        setSubmitMessage(`✅ Attendance completed and submitted for ${tripType}!`);
-        setShowPresentList(false);
-      }
-    } catch (error) {
-      setSubmitMessage(`❌ Error completing attendance: ${error.message}`);
-    } finally {
-      setIsCompletingAttendance(false);
-    }
-  };
-
   if (!driverData) {
     return <div>Loading...</div>;
   }
@@ -260,17 +410,17 @@ export default function DriverDashboard() {
       <div 
         className="fixed inset-0 bg-cover bg-center bg-no-repeat"
         style={{
-          backgroundImage: 'url("https://images.unsplash.com/photo-1464822759844-d150cb8c2bdc?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80")'
+          backgroundImage: 'url("https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80")'
         }}
       ></div>
-      <div className="fixed inset-0 bg-gradient-to-br from-green-900/80 via-emerald-800/70 to-teal-900/80"></div>
+      <div className="fixed inset-0 bg-gradient-to-br from-green-900/80 via-emerald-800/70 to-green-700/80"></div>
       
       {/* Header */}
-      <div className="relative bg-white/95 backdrop-blur-lg shadow-2xl border-b-4 border-green-500">
+      <div className="relative bg-white/95 backdrop-blur-lg shadow-2xl border-b-4 border-gradient-to-r from-green-500 to-emerald-500">
         <div className="px-6 py-6">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-4xl font-bold gradient-text-green flex items-center">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent flex items-center">
                 🚗 <span className="ml-3">Driver Dashboard</span>
               </h1>
               <p className="text-gray-600 mt-2 text-lg">Welcome, {driverData.name}</p>
@@ -303,9 +453,9 @@ export default function DriverDashboard() {
               }`}
             >
               🏠➡️🏫 Home to Campus
-              {existingRecords['home-to-campus'] && (
+              {locallySavedCounts['home-to-campus'] > 0 && (
                 <div className="text-xs mt-1 opacity-80">
-                  ✅ Already submitted ({existingRecords['home-to-campus'].presentStudents.length} present)
+                  💾 {locallySavedCounts['home-to-campus']} students saved locally
                 </div>
               )}
             </button>
@@ -319,64 +469,65 @@ export default function DriverDashboard() {
               }`}
             >
               🏫➡️🏠 Campus to Home
-              {existingRecords['campus-to-home'] && (
+              {locallySavedCounts['campus-to-home'] > 0 && (
                 <div className="text-xs mt-1 opacity-80">
-                  ✅ Already submitted ({existingRecords['campus-to-home'].presentStudents.length} present)
+                  💾 {locallySavedCounts['campus-to-home']} students saved locally
                 </div>
               )}
             </button>
           </div>
         </div>
 
-        {/* GPS Tracking Card */}
-        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-8 mb-8 border border-white/20 card-hover">
-          <h2 className="text-2xl font-bold mb-6 gradient-text-green flex items-center">
+        {/* GPS Location Tracking Card */}
+        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-6 mb-8 border border-white/20 card-hover">
+          <h2 className="text-xl font-bold mb-4 gradient-text-green flex items-center">
             📍 <span className="ml-3">GPS Location Tracking</span>
           </h2>
-
+          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <div className="flex items-center space-x-4 mb-4">
-                <button
-                  onClick={isTracking ? stopLocationTracking : startLocationTracking}
-                  className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
-                    isTracking 
-                      ? 'bg-red-500 hover:bg-red-600 text-white' 
-                      : 'bg-green-500 hover:bg-green-600 text-white'
-                  }`}
-                >
-                  {isTracking ? '⏹️ Stop Tracking' : '▶️ Start Tracking'}
-                </button>
-                <div className="flex items-center">
-                  <div className={`w-3 h-3 rounded-full mr-2 ${isTracking ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-                  <span className={isTracking ? 'text-green-600' : 'text-gray-500'}>
-                    {isTracking ? 'Live Tracking' : 'Tracking Stopped'}
-                  </span>
-                </div>
+            {/* Tracking Status */}
+            <div className={`p-4 rounded-xl border-2 ${
+              isTrackingLocation 
+                ? 'bg-green-50 border-green-300' 
+                : 'bg-red-50 border-red-300'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-bold text-gray-800">📡 Tracking Status</h3>
+                <div className={`w-3 h-3 rounded-full ${
+                  isTrackingLocation ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                }`}></div>
               </div>
-
+              <p className={`text-sm ${
+                isTrackingLocation ? 'text-green-700' : 'text-red-700'
+              }`}>
+                {isTrackingLocation ? '✅ GPS tracking active' : '❌ GPS not tracking'}
+              </p>
               {locationError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
-                  <p>❌ {locationError}</p>
-                  <p className="text-sm mt-1">Please enable location permissions in your browser</p>
-                </div>
+                <p className="text-xs text-red-600 mt-1">{locationError}</p>
               )}
             </div>
 
-            <div>
-              {currentLocation && (
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
-                  <h4 className="font-semibold text-blue-800 mb-3">Current Location</h4>
-                  <div className="space-y-2 text-sm">
-                    <p><strong>Latitude:</strong> {currentLocation.lat.toFixed(6)}</p>
-                    <p><strong>Longitude:</strong> {currentLocation.lng.toFixed(6)}</p>
-                    <p><strong>Speed:</strong> {currentLocation.speed ? `${(currentLocation.speed * 3.6).toFixed(1)} km/h` : 'N/A'}</p>
-                    <p><strong>Accuracy:</strong> {currentLocation.accuracy ? `${currentLocation.accuracy.toFixed(0)}m` : 'N/A'}</p>
-                    <p><strong>Last Update:</strong> {new Date(currentLocation.timestamp).toLocaleTimeString()}</p>
-                  </div>
+            {/* Current Location */}
+            <div className="p-4 rounded-xl border-2 bg-blue-50 border-blue-300">
+              <h3 className="text-lg font-bold text-gray-800 mb-2">🌐 Current Location</h3>
+              {currentLocation ? (
+                <div className="text-sm text-blue-700 space-y-1">
+                  <p><strong>Lat:</strong> {currentLocation.lat.toFixed(6)}</p>
+                  <p><strong>Lng:</strong> {currentLocation.lng.toFixed(6)}</p>
+                  <p><strong>Speed:</strong> {currentLocation.speed ? `${Math.round(currentLocation.speed * 3.6)} km/h` : 'N/A'}</p>
+                  <p><strong>Updated:</strong> {new Date(currentLocation.timestamp).toLocaleTimeString()}</p>
                 </div>
+              ) : (
+                <p className="text-sm text-gray-600">Waiting for GPS signal...</p>
               )}
             </div>
+          </div>
+
+          {/* Location Info */}
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <span className="font-semibold">📢 Info:</span> Your location is being shared with admin and students in real-time for bus tracking.
+            </p>
           </div>
         </div>
 
@@ -385,11 +536,9 @@ export default function DriverDashboard() {
             📋 <span className="ml-3">Take Attendance - {tripType === 'home-to-campus' ? 'Home to Campus' : 'Campus to Home'}</span>
           </h2>
           <p className="text-gray-600 mb-6 text-lg">
-            {existingRecords[tripType] 
-              ? 'Update attendance for this trip (already submitted)' 
-              : `Mark students as present for ${tripType === 'home-to-campus' ? 'morning' : 'evening'} journey`}
+            Mark students as present for {tripType === 'home-to-campus' ? 'morning' : 'evening'} journey
           </p>
-          
+
           {/* Attendance Summary */}
           <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-100 rounded-xl border border-blue-200">
             <div className="flex items-center justify-between">
@@ -417,59 +566,53 @@ export default function DriverDashboard() {
               </div>
               <div className="bg-white p-3 rounded-lg border border-blue-200">
                 <div className="text-2xl font-bold text-blue-600">
-                  {students.length > 0 ? Math.round((getPresentStudents().length / students.length) * 100) : 0}%
+                  {getPresentStudents().length > 0 ? Math.round((getPresentStudents().length / students.length) * 100) : 0}%
                 </div>
-                <div className="text-sm text-blue-500">Rate</div>
+                <div className="text-sm text-blue-500">Attendance Rate</div>
               </div>
             </div>
 
-            {/* Present Students List - Expandable */}
-            {showPresentList && (
-              <div className="mt-6 border-t border-blue-200 pt-4">
-                <h4 className="font-bold text-green-800 mb-3 flex items-center">
-                  ✅ Present Students ({getPresentStudents().length})
-                </h4>
-                {getPresentStudents().length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto">
-                    {getPresentStudents().map((student, index) => (
-                      <div key={index} className="flex items-center space-x-3 p-3 bg-green-50 rounded-lg border border-green-200">
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                          {student.name.charAt(0)}
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-medium text-green-800">{student.name}</p>
-                          <p className="text-xs text-green-600">{student.rollNo}</p>
-                        </div>
-                        <div className="text-green-500 text-lg">✅</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 italic">No students marked as present</p>
-                )}
+            {/* Present Students List */}
+            {showPresentList && getPresentStudents().length > 0 && (
+              <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                <h4 className="font-bold text-green-800 mb-3">Present Students ({getPresentStudents().length})</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {getPresentStudents().map((student, index) => (
+                    <div key={index} className="bg-white p-2 rounded border border-green-200 text-sm">
+                      <span className="font-medium text-green-700">{student.name}</span>
+                      <span className="text-green-600 ml-2">({student.rollNo})</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-          
-          {/* Students List for Attendance */}
-          <div className="space-y-3">
-            {students.map(student => (
-              <div key={student.rollNo} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors duration-200">
-                <div>
-                  <p className="font-medium text-lg">{student.name}</p>
-                  <p className="text-sm text-gray-600">{student.rollNo}</p>
+
+          {/* Student List */}
+          <div className="space-y-4">
+            {students.map((student) => (
+              <div key={student.rollNo} className={`p-6 rounded-2xl border-2 transition-all duration-300 ${
+                attendance[student.rollNo] 
+                  ? 'bg-green-50 border-green-300 shadow-lg transform scale-105' 
+                  : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-lg">{student.name}</p>
+                    <p className="text-sm text-gray-600">{student.rollNo}</p>
+                  </div>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={attendance[student.rollNo] || false}
+                      onChange={() => toggleAttendance(student.rollNo)}
+                      className="mr-3 w-6 h-6 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500"
+                    />
+                    <span className={`font-semibold text-lg ${attendance[student.rollNo] ? 'text-green-600' : 'text-gray-400'}`}>
+                      {attendance[student.rollNo] ? '✅ Present' : '❌ Absent'}
+                    </span>
+                  </label>
                 </div>
-                <label className="flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={attendance[student.rollNo] || false}
-                    onChange={() => toggleAttendance(student.rollNo)}
-                    className="mr-3 w-6 h-6 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500"
-                  />
-                  <span className={`font-semibold text-lg ${attendance[student.rollNo] ? 'text-green-600' : 'text-gray-400'}`}>
-                    {attendance[student.rollNo] ? '✅ Present' : '❌ Absent'}
-                  </span>
-                </label>
               </div>
             ))}
           </div>
@@ -484,11 +627,10 @@ export default function DriverDashboard() {
             </div>
           )}
 
-          {/* Action Buttons */}
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Save Draft Button */}
+            {/* Save Attendance Button */}
             <button
-              onClick={submitAttendance}
+              onClick={saveAttendanceLocally}
               disabled={isSubmitting}
               className={`py-4 rounded-2xl font-bold text-white text-lg transition-all duration-300 transform hover:scale-105 ${
                 isSubmitting 
@@ -506,12 +648,12 @@ export default function DriverDashboard() {
               )}
             </button>
 
-            {/* Complete Submission Button */}
+            {/* Submit to Admin Button */}
             <button
-              onClick={completeAttendanceSubmission}
-              disabled={isCompletingAttendance || getPresentStudents().length === 0}
+              onClick={submitAttendanceToAdmin}
+              disabled={isCompletingAttendance || getPresentStudents().length === 0 || isCurrentAttendanceSubmitted()}
               className={`py-4 rounded-2xl font-bold text-white text-lg transition-all duration-300 transform hover:scale-105 ${
-                isCompletingAttendance || getPresentStudents().length === 0
+                isCompletingAttendance || getPresentStudents().length === 0 || isCurrentAttendanceSubmitted()
                   ? 'bg-gray-400 cursor-not-allowed' 
                   : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-xl'
               }`}
@@ -519,42 +661,74 @@ export default function DriverDashboard() {
               {isCompletingAttendance ? (
                 <div className="flex items-center justify-center">
                   <div className="spinner mr-3"></div>
-                  Completing...
+                  Submitting...
                 </div>
+              ) : isCurrentAttendanceSubmitted() ? (
+                `✅ Already Submitted to Admin`
               ) : (
-                `📤 Complete & Submit Attendance`
+                `📤 Submit to Admin Dashboard`
               )}
             </button>
           </div>
 
           {/* Completion Status */}
-          {getPresentStudents().length === 0 && (
+          {getPresentStudents().length === 0 && !isCurrentAttendanceSubmitted() && (
             <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg">
-              ⚠️ Please mark at least one student as present before completing submission
+              ⚠️ Please mark at least one student as present before submitting
+            </div>
+          )}
+          
+          {isCurrentAttendanceSubmitted() && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 text-green-800 rounded-lg">
+              ✅ This {tripType === 'home-to-campus' ? 'morning' : 'evening'} attendance has been successfully submitted to admin
             </div>
           )}
         </div>
-
-        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-8 border border-white/20 card-hover">
-          <h3 className="text-2xl font-bold mb-4 gradient-text-green flex items-center">
-            🚌 <span className="ml-3">Bus Information</span>
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
-              <p className="text-blue-800 font-semibold">Bus ID</p>
-              <p className="text-blue-600">{driverData.busId}</p>
-            </div>
-            <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
-              <p className="text-green-800 font-semibold">Total Students</p>
-              <p className="text-green-600">{students.length}</p>
-            </div>
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
-              <p className="text-purple-800 font-semibold">Present Today</p>
-              <p className="text-purple-600">{Object.values(attendance).filter(Boolean).length}</p>
-            </div>
-          </div>
-        </div>
       </div>
+
+      <style>
+        {`
+        .gradient-text-green {
+          background: linear-gradient(135deg, #10b981, #059669);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        
+        .card-hover {
+          transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+          transform: translateY(-5px);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        
+        .btn-hover {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-hover:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        
+        .spinner {
+          width: 16px;
+          height: 16px;
+          border: 2px solid transparent;
+          border-top: 2px solid currentColor;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        `}
+      </style>
     </div>
   );
 }

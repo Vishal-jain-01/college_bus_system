@@ -128,10 +128,8 @@ export class LocationService {
   }
 
   static getAllBusLocations() {
-    return Object.keys(this.busRoutes).map(busId => ({
-      busId,
-      location: this.getCurrentLocation(busId)
-    }));
+    // Only return real GPS locations, no simulated data
+    return this.getAllRealLocations();
   }
 
   static startLocationUpdates(callback, interval = 10000) { // Changed to 10 seconds
@@ -332,6 +330,67 @@ export class LocationService {
     };
   }
 
+  // Method to check if bus is at the correct location for attendance submission
+  static isAtSubmissionLocation(lat, lng, busId, tripType) {
+    const route = this.busRoutes[busId];
+    if (!route) return false;
+
+    let targetStop = null;
+    
+    if (tripType === 'home-to-campus') {
+      // Enable submit at the last stop before campus (second last stop)
+      targetStop = route[route.length - 2]; // Second last stop
+    } else if (tripType === 'campus-to-home') {
+      // Enable submit at the student end stop (last stop - home)
+      targetStop = route[route.length - 1]; // Last stop (home)
+    }
+
+    if (!targetStop) return false;
+
+    // Calculate distance to target stop
+    const distance = this.calculateDistance(lat, lng, targetStop.lat, targetStop.lng);
+    
+    // Allow submission if within 1km of target stop
+    return distance <= 1.0; // 1km radius
+  }
+
+  // Get the target stop name for submission
+  static getSubmissionStopName(busId, tripType) {
+    const route = this.busRoutes[busId];
+    if (!route) return 'Unknown Location';
+
+    if (tripType === 'home-to-campus') {
+      return route[route.length - 2]?.name || 'Second Last Stop';
+    } else if (tripType === 'campus-to-home') {
+      return route[route.length - 1]?.name || 'Final Stop';
+    }
+    
+    return 'Unknown Location';
+  }
+
+  // Get distance to submission location
+  static getDistanceToSubmissionLocation(lat, lng, busId, tripType) {
+    const route = this.busRoutes[busId];
+    if (!route) return null;
+
+    let targetStop = null;
+    
+    if (tripType === 'home-to-campus') {
+      targetStop = route[route.length - 2];
+    } else if (tripType === 'campus-to-home') {
+      targetStop = route[route.length - 1];
+    }
+
+    if (!targetStop) return null;
+
+    const distance = this.calculateDistance(lat, lng, targetStop.lat, targetStop.lng);
+    return {
+      distance: distance,
+      targetStop: targetStop.name,
+      withinRange: distance <= 1.0
+    };
+  }
+
   static calculateDistance(lat1, lng1, lat2, lng2) {
     const R = 6371; // Earth's radius in km
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -362,5 +421,25 @@ export class LocationService {
       }
     }
     return locations;
+  }
+
+  static updateBusLocation(busId, location) {
+    try {
+      // Store the latest location for this bus
+      localStorage.setItem(`latest_location_${busId}`, JSON.stringify({
+        ...location,
+        busId,
+        lastUpdated: new Date().toISOString()
+      }));
+      
+      // Also store in session for immediate access
+      sessionStorage.setItem(`current_bus_location_${busId}`, JSON.stringify(location));
+      
+      console.log(`Updated location for bus ${busId}:`, location);
+      return true;
+    } catch (error) {
+      console.error('Error updating bus location:', error);
+      return false;
+    }
   }
 }

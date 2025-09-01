@@ -1,17 +1,31 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useGoogleMaps } from '../hooks/useGoogleMaps.js';
 import { AttendanceDB } from '../utils/attendanceDB.js';
 import { LocationService } from '../utils/locationService.js';
 import GoogleMap from '../components/GoogleMap.jsx';
+import { 
+  exportTodayAttendance, 
+  exportAllAttendance, 
+  exportDateRangeAttendance,
+  ExcelExportService 
+} from '../utils/excelExport.js';
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const { isLoaded: isGoogleMapsLoaded } = useGoogleMaps('AIzaSyDRrEGi2nzH-3W2qqhOCFzZuRms5tGeYvI');
   const [students, setStudents] = useState([]);
   const [activeTab, setActiveTab] = useState('buses');
   const [searchTerm, setSearchTerm] = useState('');
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [realTimeLocations, setRealTimeLocations] = useState([]);
   const [expandedAttendanceRecord, setExpandedAttendanceRecord] = useState(null);
-  const navigate = useNavigate();
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
+  const [dateRange, setDateRange] = useState({
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0]
+  });
 
   const buses = [
     {
@@ -42,43 +56,15 @@ export default function AdminDashboard() {
     
     loadTodayAttendance();
 
-    // Load real-time locations
+    // Load real-time GPS locations every 5 seconds
     const loadRealTimeLocations = () => {
       const locations = LocationService.getAllRealLocations();
+      console.log('Real GPS locations loaded:', locations);
       setRealTimeLocations(locations);
     };
 
     loadRealTimeLocations();
     const locationInterval = setInterval(loadRealTimeLocations, 5000);
-
-    return () => {
-      clearInterval(locationInterval);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Load real-time locations every 10 seconds
-    const loadRealTimeLocations = () => {
-      const locations = LocationService.getAllRealLocations();
-      
-      // If no real GPS locations, use simulated ones
-      if (locations.length === 0) {
-        const simulatedLocations = LocationService.getAllBusLocations();
-        const enhancedLocations = simulatedLocations.map(loc => ({
-          ...loc.location,
-          busId: loc.busId,
-          driverId: `D${loc.busId.slice(-3)}`,
-          busNumber: LocationService.busInfo[loc.busId]?.busNumber,
-          route: LocationService.busInfo[loc.busId]?.route
-        }));
-        setRealTimeLocations(enhancedLocations);
-      } else {
-        setRealTimeLocations(locations);
-      }
-    };
-
-    loadRealTimeLocations();
-    const locationInterval = setInterval(loadRealTimeLocations, 10000); // 10 seconds
 
     return () => {
       clearInterval(locationInterval);
@@ -111,6 +97,64 @@ export default function AdminDashboard() {
 
   const toggleAttendanceExpansion = (recordId) => {
     setExpandedAttendanceRecord(expandedAttendanceRecord === recordId ? null : recordId);
+  };
+
+  // Excel Export Functions
+  const handleExportTodayAttendance = async () => {
+    setExportLoading(true);
+    setExportMessage('');
+    
+    try {
+      const result = await ExcelExportService.exportTodayAttendance();
+      if (result.success) {
+        setExportMessage(`✅ Today's attendance exported successfully! File: ${result.filename} (${result.recordCount} records)`);
+      } else {
+        setExportMessage(`❌ Export failed: ${result.error}`);
+      }
+    } catch (error) {
+      setExportMessage(`❌ Export error: ${error.message}`);
+    } finally {
+      setExportLoading(false);
+      setTimeout(() => setExportMessage(''), 5000);
+    }
+  };
+
+  const handleExportAllAttendance = async () => {
+    setExportLoading(true);
+    setExportMessage('');
+    
+    try {
+      const result = await ExcelExportService.exportAllAttendance();
+      if (result.success) {
+        setExportMessage(`✅ All attendance records exported successfully! File: ${result.filename} (${result.recordCount} records)`);
+      } else {
+        setExportMessage(`❌ Export failed: ${result.error}`);
+      }
+    } catch (error) {
+      setExportMessage(`❌ Export error: ${error.message}`);
+    } finally {
+      setExportLoading(false);
+      setTimeout(() => setExportMessage(''), 5000);
+    }
+  };
+
+  const handleExportDateRange = async () => {
+    setExportLoading(true);
+    setExportMessage('');
+    
+    try {
+      const result = await ExcelExportService.exportDateRangeAttendance(dateRange.startDate, dateRange.endDate);
+      if (result.success) {
+        setExportMessage(`✅ Date range attendance exported successfully! File: ${result.filename} (${result.recordCount} records)`);
+      } else {
+        setExportMessage(`❌ Export failed: ${result.error}`);
+      }
+    } catch (error) {
+      setExportMessage(`❌ Export error: ${error.message}`);
+    } finally {
+      setExportLoading(false);
+      setTimeout(() => setExportMessage(''), 5000);
+    }
   };
 
   const filteredStudents = students.filter(student =>
@@ -382,17 +426,126 @@ export default function AdminDashboard() {
           <div className="animate-fadeIn">
             <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl overflow-hidden border border-white/20">
               <div className="p-8 bg-gradient-to-r from-purple-500 via-purple-600 to-indigo-600">
-                <h2 className="text-3xl font-bold text-white mb-4 flex items-center">
-                  📋 <span className="ml-3">Today's Attendance Summary</span>
-                </h2>
-                <p className="text-purple-100 text-lg">
-                  {new Date().toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })} - Both Trips
-                </p>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-3xl font-bold text-white mb-4 flex items-center">
+                      📋 <span className="ml-3">Today's Attendance Summary</span>
+                    </h2>
+                    <p className="text-purple-100 text-lg">
+                      {new Date().toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      })} - Both Trips
+                    </p>
+                  </div>
+                  
+                  {/* Excel Export Section */}
+                  <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+                    <h3 className="text-white font-bold mb-3 flex items-center">
+                      📄 <span className="ml-2">Export to Excel</span>
+                    </h3>
+                    
+                    <div className="space-y-2">
+                      <button
+                        onClick={handleExportTodayAttendance}
+                        disabled={exportLoading || todayAttendance.length === 0}
+                        className="w-full bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                      >
+                        {exportLoading ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Exporting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>📅</span>
+                            <span>Export Today ({todayAttendance.length} records)</span>
+                          </>
+                        )}
+                      </button>
+                      
+                      <button
+                        onClick={handleExportAllAttendance}
+                        disabled={exportLoading}
+                        className="w-full bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                      >
+                        {exportLoading ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Exporting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>🗂️</span>
+                            <span>Export All Records</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Export Message */}
+                {exportMessage && (
+                  <div className={`mt-4 p-3 rounded-lg border ${
+                    exportMessage.includes('✅') 
+                      ? 'bg-green-100/20 border-green-300/30 text-green-100' 
+                      : 'bg-red-100/20 border-red-300/30 text-red-100'
+                  }`}>
+                    {exportMessage}
+                  </div>
+                )}
+              </div>
+              
+              {/* Date Range Export Section */}
+              <div className="p-6 bg-gray-50 border-b border-gray-200">
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                  📊 <span className="ml-2">Export Date Range</span>
+                </h3>
+                
+                <div className="flex items-center space-x-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                    <input
+                      type="date"
+                      value={dateRange.startDate}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                      className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                    <input
+                      type="date"
+                      value={dateRange.endDate}
+                      onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                      className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  
+                  <div className="pt-6">
+                    <button
+                      onClick={handleExportDateRange}
+                      disabled={exportLoading || !dateRange.startDate || !dateRange.endDate}
+                      className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                    >
+                      {exportLoading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <span>Exporting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>📈</span>
+                          <span>Export Range</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
               
               <div className="p-6">
@@ -495,7 +648,73 @@ export default function AdminDashboard() {
                         {records.find(r => r.tripType === 'home-to-campus') && 
                          expandedAttendanceRecord === `${records.find(r => r.tripType === 'home-to-campus').id}-morning` && (
                           <div className="border-t border-gray-200 p-6 bg-blue-50">
-                            {/* ...existing detailed view code for morning trip... */}
+                            {(() => {
+                              const record = records.find(r => r.tripType === 'home-to-campus');
+                              return (
+                                <div>
+                                  <h4 className="font-bold text-blue-800 mb-4">🏠➡️🏫 Home to Campus - Detailed Attendance</h4>
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Present Students */}
+                                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                                      <h5 className="font-bold text-green-800 mb-3 flex items-center">
+                                        ✅ Present Students ({record.presentStudents.length})
+                                      </h5>
+                                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {record.presentStudents.map((student, idx) => (
+                                          <div key={idx} className="bg-white p-3 rounded border border-green-200 flex justify-between items-center">
+                                            <div>
+                                              <p className="font-medium text-green-800">{student.name}</p>
+                                              <p className="text-sm text-green-600">{student.rollNo}</p>
+                                            </div>
+                                            <div className="text-green-500 text-xl">✅</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    {/* Absent Students */}
+                                    <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                                      <h5 className="font-bold text-red-800 mb-3 flex items-center">
+                                        ❌ Absent Students ({record.absentStudents.length})
+                                      </h5>
+                                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {record.absentStudents.map((student, idx) => (
+                                          <div key={idx} className="bg-white p-3 rounded border border-red-200 flex justify-between items-center">
+                                            <div>
+                                              <p className="font-medium text-red-800">{student.name}</p>
+                                              <p className="text-sm text-red-600">{student.rollNo}</p>
+                                            </div>
+                                            <div className="text-red-500 text-xl">❌</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Trip Details */}
+                                  <div className="mt-4 bg-blue-100 p-4 rounded-lg border border-blue-200">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                      <div>
+                                        <span className="font-semibold text-blue-800">Time:</span>
+                                        <p className="text-blue-600">{record.time}</p>
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-blue-800">Driver:</span>
+                                        <p className="text-blue-600">{record.driverName}</p>
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-blue-800">Route:</span>
+                                        <p className="text-blue-600">{record.route}</p>
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-blue-800">Attendance Rate:</span>
+                                        <p className="text-blue-600">{Math.round((record.presentStudents.length / record.totalStudents) * 100)}%</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
 
@@ -503,7 +722,73 @@ export default function AdminDashboard() {
                         {records.find(r => r.tripType === 'campus-to-home') && 
                          expandedAttendanceRecord === `${records.find(r => r.tripType === 'campus-to-home').id}-evening` && (
                           <div className="border-t border-gray-200 p-6 bg-orange-50">
-                            {/* ...existing detailed view code for evening trip... */}
+                            {(() => {
+                              const record = records.find(r => r.tripType === 'campus-to-home');
+                              return (
+                                <div>
+                                  <h4 className="font-bold text-orange-800 mb-4">🏫➡️🏠 Campus to Home - Detailed Attendance</h4>
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Present Students */}
+                                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                                      <h5 className="font-bold text-green-800 mb-3 flex items-center">
+                                        ✅ Present Students ({record.presentStudents.length})
+                                      </h5>
+                                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {record.presentStudents.map((student, idx) => (
+                                          <div key={idx} className="bg-white p-3 rounded border border-green-200 flex justify-between items-center">
+                                            <div>
+                                              <p className="font-medium text-green-800">{student.name}</p>
+                                              <p className="text-sm text-green-600">{student.rollNo}</p>
+                                            </div>
+                                            <div className="text-green-500 text-xl">✅</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    {/* Absent Students */}
+                                    <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                                      <h5 className="font-bold text-red-800 mb-3 flex items-center">
+                                        ❌ Absent Students ({record.absentStudents.length})
+                                      </h5>
+                                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {record.absentStudents.map((student, idx) => (
+                                          <div key={idx} className="bg-white p-3 rounded border border-red-200 flex justify-between items-center">
+                                            <div>
+                                              <p className="font-medium text-red-800">{student.name}</p>
+                                              <p className="text-sm text-red-600">{student.rollNo}</p>
+                                            </div>
+                                            <div className="text-red-500 text-xl">❌</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Trip Details */}
+                                  <div className="mt-4 bg-orange-100 p-4 rounded-lg border border-orange-200">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                      <div>
+                                        <span className="font-semibold text-orange-800">Time:</span>
+                                        <p className="text-orange-600">{record.time}</p>
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-orange-800">Driver:</span>
+                                        <p className="text-orange-600">{record.driverName}</p>
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-orange-800">Route:</span>
+                                        <p className="text-orange-600">{record.route}</p>
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-orange-800">Attendance Rate:</span>
+                                        <p className="text-orange-600">{Math.round((record.presentStudents.length / record.totalStudents) * 100)}%</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
@@ -564,6 +849,7 @@ export default function AdminDashboard() {
                             }]}
                             center={{ lat: location.lat, lng: location.lng }}
                             zoom={15}
+                            isGoogleMapsAvailable={isGoogleMapsLoaded}
                           />
                         </div>
 
@@ -643,7 +929,8 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      <style jsx>{`
+      <style>
+        {`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(30px); }
           to { opacity: 1; transform: translateY(0); }
@@ -651,7 +938,8 @@ export default function AdminDashboard() {
         .animate-fadeIn {
           animation: fadeIn 0.6s ease-out;
         }
-      `}</style>
+        `}
+      </style>
     </div>
   );
 }
