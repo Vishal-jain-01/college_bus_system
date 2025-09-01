@@ -32,8 +32,8 @@ export default function StudentDashboard() {
         let locationSource = 'No Driver Location';
         
         try {
-          // Get driver's location from LocationService (not student's location)
-          const driverLocation = LocationService.getCurrentLocation(student.bus.$oid);
+          // Get driver's location using student-specific method (never student's own location)
+          const driverLocation = LocationService.getStudentViewLocation(student.bus.$oid);
           
           if (driverLocation && driverLocation.isRealLocation) {
             console.log('� Driver GPS location found:', driverLocation);
