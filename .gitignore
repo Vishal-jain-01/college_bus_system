@@ -16,7 +16,8 @@ dist-ssr
 .env
 backend/.env
 *.env.local
-*.env.production
+# Allow .env.production for Vercel deployment
+# *.env.production
 
 # Editor directories and files
 .vscode/*
