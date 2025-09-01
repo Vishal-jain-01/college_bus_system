@@ -8,7 +8,6 @@ import Bus from "./models/Bus.js";
 import authRoutes from "./routes/auth.js";
 
 const app = express();
-const uri=process.env.MONGO_URI
 
 app.use(cors({
   origin: ["http://localhost:5173", "http://localhost:5174"],  // frontend URLs
@@ -22,7 +21,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 
 // Connect to DB
-mongoose.connect(uri);
+mongoose.connect(process.env.MONGO_URI);
 
 // API: Get all students
 app.get("/api/students", async (req, res) => {
