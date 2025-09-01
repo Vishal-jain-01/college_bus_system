@@ -288,18 +288,6 @@ export class LocationService {
         distanceToNextStop: routeProgress.distanceToNextStop
       };
 
-      // Save to backend API
-      try {
-        // Use your backend URL (replace with your actual backend URL)
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://bus-tracking-system-1-gh4s.onrender.com';
-        const response = await fetch(`${backendUrl}/api/location/update-location/${locationData.busId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(enhancedLocationData)
-        });
-
       // Save to backend API (optional - fallback to localStorage if backend not available)
       try {
         const backendUrl = import.meta.env.VITE_BACKEND_URL;
