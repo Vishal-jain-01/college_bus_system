@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGoogleMaps } from '../hooks/useGoogleMaps.js';
 import { LocationService } from '../utils/locationService.js';
+import { AttendanceDB } from '../utils/attendanceDB.js';
 import GoogleMap from '../components/GoogleMap.jsx';
 
 // Helper function to get user's current location
@@ -41,6 +42,11 @@ export default function StudentDashboard() {
   const [realTimeLocations, setRealTimeLocations] = useState([]);
   const [activeTab, setActiveTab] = useState('location');
   const [studentBusLocation, setStudentBusLocation] = useState(null);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [presentDatesView, setPresentDatesView] = useState('grid'); // 'grid' or 'calendar'
   const navigate = useNavigate();
   const { isLoaded } = useGoogleMaps('AIzaSyDRrEGi2nzH-3W2qqhOCFzZuRms5tGeYvI');
 
@@ -195,6 +201,34 @@ export default function StudentDashboard() {
     };
   }, []);
 
+  // Load student attendance records
+  const loadAttendanceData = async () => {
+    if (!studentData?.rollNo) return;
+    
+    setAttendanceLoading(true);
+    try {
+      const monthlyRecords = await AttendanceDB.getStudentAttendanceByMonth(
+        studentData.rollNo, 
+        selectedYear, 
+        selectedMonth
+      );
+      setAttendanceRecords(monthlyRecords);
+      console.log('📊 Loaded attendance records for', studentData.rollNo, ':', monthlyRecords);
+    } catch (error) {
+      console.error('Error loading attendance data:', error);
+      setAttendanceRecords([]);
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  // Load attendance data when tab changes to attendance or month/year changes
+  useEffect(() => {
+    if (activeTab === 'attendance' && studentData?.rollNo) {
+      loadAttendanceData();
+    }
+  }, [activeTab, selectedMonth, selectedYear, studentData?.rollNo]);
+
   const handleLogout = () => {
     localStorage.removeItem('userType');
     localStorage.removeItem('studentData');
@@ -252,6 +286,17 @@ export default function StudentDashboard() {
             >
               <span>📍</span>
               <span>My Bus Location</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('attendance')}
+              className={`px-6 py-3 rounded-xl font-bold transition-all duration-300 flex items-center space-x-2 ${
+                activeTab === 'attendance' 
+                  ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-xl transform scale-105' 
+                  : 'text-gray-600 hover:bg-green-50 hover:text-green-600'
+              }`}
+            >
+              <span>📊</span>
+              <span>My Attendance</span>
             </button>
             <button
               onClick={() => setActiveTab('profile')}
@@ -583,7 +628,7 @@ export default function StudentDashboard() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                         <div className="bg-white p-3 rounded-lg">
                           <span className="font-semibold text-gray-700">Latitude</span>
                           <p className="text-blue-600 font-mono">{studentBusLocation.lat.toFixed(6)}</p>
@@ -591,18 +636,6 @@ export default function StudentDashboard() {
                         <div className="bg-white p-3 rounded-lg">
                           <span className="font-semibold text-gray-700">Longitude</span>
                           <p className="text-blue-600 font-mono">{studentBusLocation.lng.toFixed(6)}</p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg">
-                          <span className="font-semibold text-gray-700">Speed</span>
-                          <p className="text-green-600 font-semibold">
-                            {studentBusLocation.speed ? `${(studentBusLocation.speed * 3.6).toFixed(1)} km/h` : 'Stationary'}
-                          </p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg">
-                          <span className="font-semibold text-gray-700">Accuracy</span>
-                          <p className="text-purple-600">
-                            {studentBusLocation.accuracy ? `${studentBusLocation.accuracy.toFixed(0)}m` : 'N/A'}
-                          </p>
                         </div>
                       </div>
                       
@@ -638,6 +671,551 @@ export default function StudentDashboard() {
                           : 'Route B - Airport to College'}</p>
                       </div>
                     </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Attendance Tab */}
+        {activeTab === 'attendance' && (
+          <div className="animate-fadeIn space-y-6">
+            <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl overflow-hidden border border-white/20">
+              <div className="p-8 bg-gradient-to-r from-green-500 via-green-600 to-emerald-600">
+                <h2 className="text-3xl font-bold text-white mb-4 flex items-center">
+                  📊 <span className="ml-3">My Attendance Records</span>
+                </h2>
+                <p className="text-green-100 text-lg">Track your monthly attendance for morning and evening trips</p>
+              </div>
+              
+              <div className="p-6">
+                {/* Month/Year Selector */}
+                <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-100 p-6 rounded-2xl border border-blue-200">
+                  <h3 className="text-xl font-bold text-blue-800 mb-4 flex items-center">
+                    📅 <span className="ml-2">Select Month & Year</span>
+                  </h3>
+                  <div className="flex flex-wrap gap-4">
+                    <div className="flex flex-col">
+                      <label className="text-sm font-semibold text-blue-700 mb-2">Month</label>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                        className="px-4 py-2 border-2 border-blue-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                      >
+                        {[
+                          'January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'
+                        ].map((month, index) => (
+                          <option key={index} value={index}>{month}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col">
+                      <label className="text-sm font-semibold text-blue-700 mb-2">Year</label>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        className="px-4 py-2 border-2 border-blue-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                      >
+                        {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Attendance Summary */}
+                {!attendanceLoading && (() => {
+                  // Group records by date to show morning/evening breakdown
+                  const groupedByDate = {};
+                  attendanceRecords.forEach(record => {
+                    if (!groupedByDate[record.date]) {
+                      groupedByDate[record.date] = {};
+                    }
+                    groupedByDate[record.date][record.tripType] = record.status;
+                  });
+
+                  const morningPresent = attendanceRecords.filter(r => r.tripType === 'home-to-campus' && r.status === 'present').length;
+                  const morningAbsent = attendanceRecords.filter(r => r.tripType === 'home-to-campus' && r.status === 'absent').length;
+                  const eveningPresent = attendanceRecords.filter(r => r.tripType === 'campus-to-home' && r.status === 'present').length;
+                  const eveningAbsent = attendanceRecords.filter(r => r.tripType === 'campus-to-home' && r.status === 'absent').length;
+                  
+                  const totalDays = Object.keys(groupedByDate).length;
+                  const fullDayPresent = Object.values(groupedByDate).filter(day => 
+                    day['home-to-campus'] === 'present' && day['campus-to-home'] === 'present'
+                  ).length;
+                  const partialPresent = Object.values(groupedByDate).filter(day => 
+                    (day['home-to-campus'] === 'present' && day['campus-to-home'] === 'absent') ||
+                    (day['home-to-campus'] === 'absent' && day['campus-to-home'] === 'present')
+                  ).length;
+
+                  return (
+                    <div className="mb-6 space-y-4">
+                      {/* Main Summary Cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
+                          <div className="flex items-center">
+                            <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center mr-4">
+                              <span className="text-white text-xl">🌅</span>
+                            </div>
+                            <div>
+                              <p className="text-green-800 font-semibold">Morning Present</p>
+                              <p className="text-2xl font-bold text-green-600">{morningPresent}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-4 rounded-xl border border-orange-200">
+                          <div className="flex items-center">
+                            <div className="w-12 h-12 bg-orange-500 rounded-full flex items-center justify-center mr-4">
+                              <span className="text-white text-xl">🌆</span>
+                            </div>
+                            <div>
+                              <p className="text-orange-800 font-semibold">Evening Present</p>
+                              <p className="text-2xl font-bold text-orange-600">{eveningPresent}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
+                          <div className="flex items-center">
+                            <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4">
+                              <span className="text-white text-xl">📅</span>
+                            </div>
+                            <div>
+                              <p className="text-blue-800 font-semibold">Full Day Present</p>
+                              <p className="text-2xl font-bold text-blue-600">{fullDayPresent}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-r from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200">
+                          <div className="flex items-center">
+                            <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center mr-4">
+                              <span className="text-white text-xl">⚡</span>
+                            </div>
+                            <div>
+                              <p className="text-purple-800 font-semibold">Partial Present</p>
+                              <p className="text-2xl font-bold text-purple-600">{partialPresent}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Detailed Breakdown */}
+                      <div className="bg-gradient-to-r from-indigo-50 to-indigo-100 p-4 rounded-xl border border-indigo-200">
+                        <h4 className="text-lg font-bold text-indigo-800 mb-3 flex items-center">
+                          📊 <span className="ml-2">Attendance Breakdown</span>
+                        </h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="text-center">
+                            <p className="text-indigo-700 font-semibold">Morning Absent</p>
+                            <p className="text-xl font-bold text-red-600">{morningAbsent}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-indigo-700 font-semibold">Evening Absent</p>
+                            <p className="text-xl font-bold text-red-600">{eveningAbsent}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-indigo-700 font-semibold">Total Days</p>
+                            <p className="text-xl font-bold text-indigo-600">{totalDays}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-indigo-700 font-semibold">Overall %</p>
+                            <p className="text-xl font-bold text-indigo-600">
+                              {attendanceRecords.length > 0 
+                                ? Math.round(((morningPresent + eveningPresent) / attendanceRecords.length) * 100)
+                                : 0}%
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Loading State */}
+                {attendanceLoading && (
+                  <div className="text-center py-12">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mb-4"></div>
+                    <p className="text-gray-600">Loading attendance records...</p>
+                  </div>
+                )}
+
+                {/* Attendance Records */}
+                {!attendanceLoading && attendanceRecords.length > 0 && (() => {
+                  // Group records by date
+                  const groupedByDate = {};
+                  attendanceRecords.forEach(record => {
+                    if (!groupedByDate[record.date]) {
+                      groupedByDate[record.date] = {
+                        date: record.date,
+                        morning: null,
+                        evening: null
+                      };
+                    }
+                    if (record.tripType === 'home-to-campus') {
+                      groupedByDate[record.date].morning = record;
+                    } else {
+                      groupedByDate[record.date].evening = record;
+                    }
+                  });
+
+                  // Sort dates in descending order (newest first)
+                  const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b) - new Date(a));
+
+                  return (
+                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center">
+                          📋 <span className="ml-2">Daily Attendance Records - {[
+                            'January', 'February', 'March', 'April', 'May', 'June',
+                            'July', 'August', 'September', 'October', 'November', 'December'
+                          ][selectedMonth]} {selectedYear}</span>
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">Morning and evening attendance for each day</p>
+                      </div>
+                      <div className="max-h-96 overflow-y-auto">
+                        {sortedDates.map((date, index) => {
+                          const dayData = groupedByDate[date];
+                          const morningStatus = dayData.morning?.status;
+                          const eveningStatus = dayData.evening?.status;
+                          
+                          // Determine overall day status
+                          let dayStatusColor = 'bg-gray-50';
+                          let dayStatusIcon = '⚪';
+                          let dayStatusText = 'No Data';
+                          
+                          if (morningStatus === 'present' && eveningStatus === 'present') {
+                            dayStatusColor = 'bg-green-50';
+                            dayStatusIcon = '🟢';
+                            dayStatusText = 'Full Day Present';
+                          } else if (morningStatus === 'present' || eveningStatus === 'present') {
+                            dayStatusColor = 'bg-yellow-50';
+                            dayStatusIcon = '🟡';
+                            dayStatusText = 'Partially Present';
+                          } else if (morningStatus === 'absent' || eveningStatus === 'absent') {
+                            dayStatusColor = 'bg-red-50';
+                            dayStatusIcon = '🔴';
+                            dayStatusText = 'Absent';
+                          }
+
+                          return (
+                            <div key={date} className={`p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center space-x-3">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${dayStatusColor} border-2 border-gray-200`}>
+                                    {dayStatusIcon}
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-gray-800 text-lg">
+                                      {new Date(date).toLocaleDateString('en-US', { 
+                                        weekday: 'long', 
+                                        year: 'numeric', 
+                                        month: 'long', 
+                                        day: 'numeric' 
+                                      })}
+                                    </p>
+                                    <p className="text-sm text-gray-600">{dayStatusText}</p>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Morning and Evening Status */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {/* Morning Trip */}
+                                <div className={`p-3 rounded-lg border-2 ${
+                                  morningStatus === 'present' 
+                                    ? 'bg-green-50 border-green-200' 
+                                    : morningStatus === 'absent'
+                                    ? 'bg-red-50 border-red-200'
+                                    : 'bg-gray-50 border-gray-200'
+                                }`}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-lg">🌅</span>
+                                      <div>
+                                        <p className="font-semibold text-gray-800">Morning Trip</p>
+                                        <p className="text-xs text-gray-600">🏠➡️🏫 Home to Campus</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      {morningStatus ? (
+                                        <>
+                                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${
+                                            morningStatus === 'present' 
+                                              ? 'bg-green-100 text-green-800' 
+                                              : 'bg-red-100 text-red-800'
+                                          }`}>
+                                            {morningStatus === 'present' ? '✅ Present' : '❌ Absent'}
+                                          </span>
+                                          <p className="text-xs text-gray-500 mt-1">
+                                            {dayData.morning?.time} • {dayData.morning?.driverName}
+                                          </p>
+                                        </>
+                                      ) : (
+                                        <span className="text-xs text-gray-400">No record</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Evening Trip */}
+                                <div className={`p-3 rounded-lg border-2 ${
+                                  eveningStatus === 'present' 
+                                    ? 'bg-green-50 border-green-200' 
+                                    : eveningStatus === 'absent'
+                                    ? 'bg-red-50 border-red-200'
+                                    : 'bg-gray-50 border-gray-200'
+                                }`}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-lg">🌆</span>
+                                      <div>
+                                        <p className="font-semibold text-gray-800">Evening Trip</p>
+                                        <p className="text-xs text-gray-600">🏫➡️🏠 Campus to Home</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      {eveningStatus ? (
+                                        <>
+                                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${
+                                            eveningStatus === 'present' 
+                                              ? 'bg-green-100 text-green-800' 
+                                              : 'bg-red-100 text-red-800'
+                                          }`}>
+                                            {eveningStatus === 'present' ? '✅ Present' : '❌ Absent'}
+                                          </span>
+                                          <p className="text-xs text-gray-500 mt-1">
+                                            {dayData.evening?.time} • {dayData.evening?.driverName}
+                                          </p>
+                                        </>
+                                      ) : (
+                                        <span className="text-xs text-gray-400">No record</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Present Dates Section */}
+                {!attendanceLoading && attendanceRecords.length > 0 && (() => {
+                  // Get all dates where student was present (either morning or evening)
+                  const presentDates = [];
+                  const groupedByDate = {};
+                  
+                  attendanceRecords.forEach(record => {
+                    if (!groupedByDate[record.date]) {
+                      groupedByDate[record.date] = {
+                        date: record.date,
+                        morning: null,
+                        evening: null
+                      };
+                    }
+                    if (record.tripType === 'home-to-campus') {
+                      groupedByDate[record.date].morning = record.status;
+                    } else {
+                      groupedByDate[record.date].evening = record.status;
+                    }
+                  });
+
+                  // Filter dates where student was present at least once
+                  Object.values(groupedByDate).forEach(day => {
+                    if (day.morning === 'present' || day.evening === 'present') {
+                      presentDates.push({
+                        date: day.date,
+                        morningPresent: day.morning === 'present',
+                        eveningPresent: day.evening === 'present',
+                        fullDay: day.morning === 'present' && day.evening === 'present'
+                      });
+                    }
+                  });
+
+                  // Sort dates in descending order (newest first)
+                  presentDates.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                  return presentDates.length > 0 && (
+                    <div className="mb-6 bg-gradient-to-r from-green-50 to-emerald-100 p-6 rounded-2xl border border-green-200">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-xl font-bold text-green-800 flex items-center">
+                          📅 <span className="ml-2">Dates When You Were Present</span>
+                        </h3>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => setPresentDatesView('grid')}
+                            className={`px-3 py-1 rounded-lg text-sm font-semibold transition-all ${
+                              presentDatesView === 'grid' 
+                                ? 'bg-green-500 text-white' 
+                                : 'bg-white text-green-700 hover:bg-green-100'
+                            }`}
+                          >
+                            📋 Grid View
+                          </button>
+                          <button
+                            onClick={() => setPresentDatesView('list')}
+                            className={`px-3 py-1 rounded-lg text-sm font-semibold transition-all ${
+                              presentDatesView === 'list' 
+                                ? 'bg-green-500 text-white' 
+                                : 'bg-white text-green-700 hover:bg-green-100'
+                            }`}
+                          >
+                            📃 List View
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <p className="text-green-700 mb-4 text-sm">
+                        All dates in {[
+                          'January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'
+                        ][selectedMonth]} {selectedYear} when you attended at least one trip ({presentDates.length} days)
+                      </p>
+                      
+                      {/* Grid View */}
+                      {presentDatesView === 'grid' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {presentDates.map((dateInfo, index) => (
+                            <div key={dateInfo.date} className={`p-4 rounded-xl border-2 transition-all hover:shadow-md ${
+                              dateInfo.fullDay 
+                                ? 'bg-green-100 border-green-300' 
+                                : 'bg-yellow-100 border-yellow-300'
+                            }`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-lg">
+                                    {dateInfo.fullDay ? '🟢' : '🟡'}
+                                  </span>
+                                  <div>
+                                    <p className="font-bold text-gray-800">
+                                      {new Date(dateInfo.date).toLocaleDateString('en-US', { 
+                                        weekday: 'short',
+                                        month: 'short', 
+                                        day: 'numeric'
+                                      })}
+                                    </p>
+                                    <p className="text-xs text-gray-600">
+                                      {new Date(dateInfo.date).toLocaleDateString('en-US', { 
+                                        year: 'numeric'
+                                      })}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                                    dateInfo.fullDay 
+                                      ? 'bg-green-200 text-green-800' 
+                                      : 'bg-yellow-200 text-yellow-800'
+                                  }`}>
+                                    {dateInfo.fullDay ? 'Full Day' : 'Partial'}
+                                  </span>
+                                </div>
+                              </div>
+                              
+                              {/* Morning/Evening Status */}
+                              <div className="flex justify-between text-xs">
+                                <div className="flex items-center space-x-1">
+                                  <span className="text-orange-600">🌅</span>
+                                  <span className={dateInfo.morningPresent ? 'text-green-600 font-semibold' : 'text-gray-400'}>
+                                    {dateInfo.morningPresent ? 'Present' : 'Absent'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center space-x-1">
+                                  <span className="text-purple-600">🌆</span>
+                                  <span className={dateInfo.eveningPresent ? 'text-green-600 font-semibold' : 'text-gray-400'}>
+                                    {dateInfo.eveningPresent ? 'Present' : 'Absent'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* List View */}
+                      {presentDatesView === 'list' && (
+                        <div className="bg-white rounded-lg border border-green-200 overflow-hidden">
+                          <div className="max-h-64 overflow-y-auto">
+                            {presentDates.map((dateInfo, index) => (
+                              <div key={dateInfo.date} className={`flex items-center justify-between p-3 border-b border-green-100 hover:bg-green-50 transition-colors ${
+                                index % 2 === 0 ? 'bg-white' : 'bg-green-25'
+                              }`}>
+                                <div className="flex items-center space-x-3">
+                                  <span className="text-xl">
+                                    {dateInfo.fullDay ? '🟢' : '🟡'}
+                                  </span>
+                                  <div>
+                                    <p className="font-semibold text-gray-800">
+                                      {new Date(dateInfo.date).toLocaleDateString('en-US', { 
+                                        weekday: 'long',
+                                        year: 'numeric',
+                                        month: 'long', 
+                                        day: 'numeric'
+                                      })}
+                                    </p>
+                                    <div className="flex space-x-4 text-xs text-gray-600">
+                                      <span className={dateInfo.morningPresent ? 'text-green-600' : 'text-gray-400'}>
+                                        🌅 {dateInfo.morningPresent ? 'Morning ✅' : 'Morning ❌'}
+                                      </span>
+                                      <span className={dateInfo.eveningPresent ? 'text-green-600' : 'text-gray-400'}>
+                                        🌆 {dateInfo.eveningPresent ? 'Evening ✅' : 'Evening ❌'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                                  dateInfo.fullDay 
+                                    ? 'bg-green-200 text-green-800' 
+                                    : 'bg-yellow-200 text-yellow-800'
+                                }`}>
+                                  {dateInfo.fullDay ? 'Full Day' : 'Partial'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Quick Stats */}
+                      <div className="mt-4 p-3 bg-white rounded-lg border border-green-200">
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-green-800 font-semibold">Present Days Summary:</span>
+                          <div className="flex space-x-4">
+                            <span className="text-green-600">
+                              🟢 Full Days: {presentDates.filter(d => d.fullDay).length}
+                            </span>
+                            <span className="text-yellow-600">
+                              🟡 Partial Days: {presentDates.filter(d => !d.fullDay).length}
+                            </span>
+                            <span className="text-blue-600">
+                              📊 Total Present: {presentDates.length}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* No Records State */}
+                {!attendanceLoading && attendanceRecords.length === 0 && (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">📅</div>
+                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No Attendance Records</h3>
+                    <p className="text-gray-500">
+                      No attendance records found for {[
+                        'January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'
+                      ][selectedMonth]} {selectedYear}.
+                    </p>
+                    <p className="text-gray-500 mt-2">
+                      Attendance records are created when drivers submit attendance data.
+                    </p>
                   </div>
                 )}
               </div>

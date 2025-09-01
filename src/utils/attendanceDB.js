@@ -136,4 +136,58 @@ export class AttendanceDB {
       return null;
     }
   }
+
+  static async getStudentAttendance(rollNo) {
+    try {
+      const data = await this.getAttendanceRecords();
+      const studentRecords = [];
+      
+      data.attendanceRecords.forEach(record => {
+        // Check if student was present
+        const isPresent = record.presentStudents.some(student => student.rollNo === rollNo);
+        
+        // Check if student was absent
+        const isAbsent = record.absentStudents.some(student => student.rollNo === rollNo);
+        
+        // Only include records where this student was tracked
+        if (isPresent || isAbsent) {
+          studentRecords.push({
+            id: record.id,
+            date: record.date,
+            time: record.time,
+            tripType: record.tripType,
+            status: isPresent ? 'present' : 'absent',
+            driverName: record.driverName,
+            busId: record.busId,
+            route: record.route
+          });
+        }
+      });
+      
+      // Sort by date descending (newest first)
+      studentRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      return studentRecords;
+    } catch (error) {
+      console.error('Error getting student attendance:', error);
+      return [];
+    }
+  }
+
+  static async getStudentAttendanceByMonth(rollNo, year, month) {
+    try {
+      const allRecords = await this.getStudentAttendance(rollNo);
+      
+      // Filter by year and month
+      const monthRecords = allRecords.filter(record => {
+        const recordDate = new Date(record.date);
+        return recordDate.getFullYear() === year && recordDate.getMonth() === month;
+      });
+      
+      return monthRecords;
+    } catch (error) {
+      console.error('Error getting student attendance by month:', error);
+      return [];
+    }
+  }
 }
