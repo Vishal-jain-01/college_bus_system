@@ -74,9 +74,9 @@ export class LocationService {
   }
 
   // Student-specific method - only returns driver location or campus default
-  static getStudentViewLocation(busId) {
+  static async getStudentViewLocation(busId) {
     // Try to get driver's real location first
-    const driverLocation = this.getRealLocation(busId);
+    const driverLocation = await this.getRealLocation(busId);
     if (driverLocation) {
       console.log('🚌 Driver location found for student view:', driverLocation);
       return {
@@ -173,13 +173,15 @@ export class LocationService {
   static getAllBusLocations() {
     // Only return real GPS locations, no simulated data
     return this.getAllRealLocations();
-  }  static startLocationUpdates(callback, interval = 10000) { // Changed to 10 seconds
+  }
+
+  static async startLocationUpdates(callback, interval = 5000) { // Changed to 5 seconds for faster updates
     // Initial call
-    const locations = this.getAllBusLocations();
+    const locations = await this.getAllRealLocations();
     callback(locations);
     
-    const updateInterval = setInterval(() => {
-      const locations = this.getAllBusLocations();
+    const updateInterval = setInterval(async () => {
+      const locations = await this.getAllRealLocations();
       callback(locations);
     }, interval);
 
@@ -286,7 +288,43 @@ export class LocationService {
         distanceToNextStop: routeProgress.distanceToNextStop
       };
 
-      // Save to localStorage
+      // Save to backend API
+      try {
+        // Use your backend URL (replace with your actual backend URL)
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://bus-tracking-system-1-gh4s.onrender.com';
+        const response = await fetch(`${backendUrl}/api/location/update-location/${locationData.busId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(enhancedLocationData)
+        });
+
+      // Save to backend API (optional - fallback to localStorage if backend not available)
+      try {
+        const backendUrl = import.meta.env.VITE_BACKEND_URL;
+        if (backendUrl && backendUrl !== 'undefined') {
+          const response = await fetch(`${backendUrl}/api/location/update-location/${locationData.busId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(enhancedLocationData)
+          });
+
+          if (response.ok) {
+            console.log('✅ Location saved to backend successfully');
+          } else {
+            console.log('⚠️ Backend save failed, using localStorage only');
+          }
+        } else {
+          console.log('ℹ️ Backend URL not configured, using localStorage only');
+        }
+      } catch (backendError) {
+        console.log('⚠️ Backend save error, using localStorage only:', backendError.message);
+      }
+
+      // Also save to localStorage as fallback
       const key = `real_location_${locationData.busId}`;
       const existingData = JSON.parse(localStorage.getItem(key) || '[]');
       
@@ -558,20 +596,50 @@ export class LocationService {
     return R * c;
   }
 
-  static getRealLocation(busId) {
+  static async getRealLocation(busId) {
     try {
+      // Try to get from backend API first (for cross-device sync)
+      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+      if (backendUrl && backendUrl !== 'undefined') {
+        try {
+          const response = await fetch(`${backendUrl}/api/location/current-location/${busId}`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.location) {
+              console.log('✅ Got FRESH location from backend API:', data.location);
+              return data.location;
+            } else {
+              console.log('⚠️ Backend API returned no location data');
+            }
+          } else {
+            console.log('⚠️ Backend API request failed with status:', response.status);
+          }
+        } catch (backendError) {
+          console.log('⚠️ Backend API error:', backendError.message);
+        }
+      } else {
+        console.log('ℹ️ Backend URL not configured, using localStorage only');
+      }
+
+      // Fallback to localStorage only if backend is not available
       const latest = localStorage.getItem(`latest_location_${busId}`);
-      return latest ? JSON.parse(latest) : null;
+      if (latest) {
+        console.log('📦 Using localStorage fallback (same device only)');
+        return JSON.parse(latest);
+      }
+      
+      console.log('❌ No location data found (backend or localStorage)');
+      return null;
     } catch (error) {
       console.error('Error getting real location:', error);
       return null;
     }
   }
 
-  static getAllRealLocations() {
+  static async getAllRealLocations() {
     const locations = [];
     for (const busId of Object.keys(this.busRoutes)) {
-      const location = this.getRealLocation(busId);
+      const location = await this.getRealLocation(busId);
       if (location) {
         locations.push(location);
       }

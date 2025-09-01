@@ -5,6 +5,37 @@ import { LocationService } from '../utils/locationService.js';
 import { AttendanceDB } from '../utils/attendanceDB.js';
 import GoogleMap from '../components/GoogleMap.jsx';
 
+// Helper function to get user's current location
+const getUserCurrentLocation = () => {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation is not supported by this browser'));
+      return;
+    }
+
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 60000 // Cache for 1 minute
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          timestamp: position.timestamp
+        });
+      },
+      (error) => {
+        reject(error);
+      },
+      options
+    );
+  });
+};
+
 export default function StudentDashboard() {
   const [studentData, setStudentData] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -26,159 +57,74 @@ export default function StudentDashboard() {
     // Load student's bus location using real user location for route progress
     const loadStudentBusLocation = async () => {
       if (student.bus?.$oid) {
-        // Students should ONLY see driver's location, not their own location
-        let location = null;
-        let isRealLocation = false;
-        let locationSource = 'No Driver Location';
+        console.log('� Loading driver location for student dashboard...');
         
-        try {
-          // Get driver's location using student-specific method (never student's own location)
-          const driverLocation = LocationService.getStudentViewLocation(student.bus.$oid);
+        // ONLY get driver's GPS location for cross-device sync
+        const driverLocation = await LocationService.getStudentViewLocation(student.bus.$oid);
+        
+        if (driverLocation) {
+          console.log('🚌 Driver location found for student view:', driverLocation);
           
-          if (driverLocation) {
-            console.log('� Driver GPS location found:', driverLocation);
-            
-            location = {
-              lat: driverLocation.lat,
-              lng: driverLocation.lng,
-              currentStop: driverLocation.currentStop,
-              nextStop: driverLocation.nextStop,
-              routeProgress: driverLocation.routeProgress,
-              progressStatus: driverLocation.progressStatus,
-              speed: driverLocation.speed || 0,
-              accuracy: driverLocation.accuracy || 0,
-              timestamp: driverLocation.timestamp,
-              distanceToCurrentStop: driverLocation.distanceToCurrentStop,
-              distanceToNextStop: driverLocation.distanceToNextStop,
-              driverName: driverLocation.driverName,
-              busNumber: driverLocation.busNumber
-            };
-            isRealLocation = driverLocation.isRealLocation || false;
-            locationSource = driverLocation.locationSource || 'Driver Location';
-            console.log('✅ Using location for student dashboard:', location);
-          } else {
-            // No driver location available - show default campus location
-            console.log('❌ No driver GPS available, showing campus location');
-            const busInfo = LocationService.busInfo[student.bus.$oid];
-            const campusLocation = LocationService.busRoutes[student.bus.$oid]?.[0]; // First stop is campus
-            
-            if (campusLocation) {
-              location = {
-                lat: campusLocation.lat,
-                lng: campusLocation.lng,
-                currentStop: 'Arrived at MIET Campus',
-                nextStop: 'Waiting for driver',
-                routeProgress: 0,
-                progressStatus: 'waiting',
-                speed: 0,
-                accuracy: 0,
-                timestamp: Date.now(),
-                distanceToCurrentStop: 0,
-                distanceToNextStop: 0,
-                busNumber: busInfo?.busNumber || 'Unknown Bus',
-                driverName: busInfo?.driver || 'Unknown Driver'
-              };
-              isRealLocation = false;
-              locationSource = 'Campus Default';
-              console.log('🏫 Using default campus location:', location);
-            }
-          }
-        } catch (error) {
-          console.log('❌ Error getting driver location:', error.message);
-          
-          // If there's an error, show campus default location
+          // Enhanced location with bus info
           const busInfo = LocationService.busInfo[student.bus.$oid];
-          const campusLocation = LocationService.busRoutes[student.bus.$oid]?.[0];
+          const enhancedLocation = {
+            ...driverLocation,
+            busId: student.bus.$oid,
+            busNumber: busInfo?.busNumber || 'Unknown',
+            route: busInfo?.route || 'Unknown Route',
+            driverName: busInfo?.driver || driverLocation.driverName || 'Unknown Driver',
+            isRealLocation: driverLocation.isRealLocation || false,
+            locationSource: driverLocation.locationSource || 'Driver GPS',
+            lastUpdated: driverLocation.lastUpdated ? 
+              new Date(driverLocation.lastUpdated).toLocaleTimeString() : 
+              new Date().toLocaleTimeString()
+          };
           
-          if (campusLocation) {
-            location = {
-              lat: campusLocation.lat,
-              lng: campusLocation.lng,
-              currentStop: 'Arrived at MIET Campus',
-              nextStop: 'Waiting for driver',
-              routeProgress: 0,
-              progressStatus: 'waiting',
-              speed: 0,
-              accuracy: 0,
-              timestamp: Date.now(),
-              distanceToCurrentStop: 0,
-              distanceToNextStop: 0,
-              busNumber: busInfo?.busNumber || 'Unknown Bus',
-              driverName: busInfo?.driver || 'Unknown Driver'
-            };
-            isRealLocation = false;
-            locationSource = 'Campus Default (Error)';
-            console.log('🏫 Using campus location due to error:', location);
-          }
-        }
-        
-        // If no location at all, don't set anything
-        if (!location) {
-          console.log('❌ No location data available for bus:', student.bus.$oid);
-          setStudentBusLocation(null);
-          return;
-        }
-        
-            // Enhanced location with bus info - only for real GPS locations
-            const busInfo = LocationService.busInfo[student.bus.$oid];
-            const enhancedLocation = {
-              ...location,
-              busId: student.bus.$oid,
-              busNumber: busInfo?.busNumber || 'Unknown',
-              route: busInfo?.route || 'Unknown Route',
-              driverName: busInfo?.driver || 'Unknown Driver',
-              lastUpdated: new Date(location.lastUpdated || Date.now()).toLocaleTimeString(),
-              isRealLocation: isRealLocation,
-              locationSource: locationSource
-            };
+          console.log('✅ Using location for student dashboard:', enhancedLocation);
+          setStudentBusLocation(enhancedLocation);
+          console.log('Driver GPS location loaded:', enhancedLocation);
+          
+          // Debug route progress calculation
+          if (enhancedLocation.currentStop && student.bus?.stops) {
+            const cleanCurrentStop = enhancedLocation.currentStop
+              .replace('Arrived at ', '')
+              .replace('At ', '')
+              .replace('Near ', '')
+              .replace('Approaching ', '')
+              .replace('En route to ', '')
+              .replace('Left ', '')
+              .split(',')[0]
+              .trim();
             
-            console.log('🏗️ Enhanced location object created:', {
-              routeProgress: enhancedLocation.routeProgress,
-              isRealLocation: enhancedLocation.isRealLocation,
-              currentStop: enhancedLocation.currentStop,
-              locationSource: enhancedLocation.locationSource
+            const currentStopIndex = student.bus.stops.findIndex(stop => 
+              stop.toLowerCase().includes(cleanCurrentStop.toLowerCase()) ||
+              cleanCurrentStop.toLowerCase().includes(stop.toLowerCase())
+            );
+            
+            // Use the route progress from LocationService (GPS-based)
+            const locationServiceProgress = enhancedLocation.routeProgress || 0;
+            
+            console.log('🛤️ Route Progress Debug:', {
+              rawCurrentStop: enhancedLocation.currentStop,
+              cleanCurrentStop,
+              currentStopIndex,
+              locationServiceProgress: locationServiceProgress + '% (GPS-based)',
+              usingLocationServiceProgress: true,
+              availableStops: student.bus.stops
             });
-            
-            setStudentBusLocation(enhancedLocation);
-            console.log(`${locationSource} location loaded:`, enhancedLocation);
-            
-            // Debug route progress calculation - only for real GPS
-            if (enhancedLocation.currentStop && student.bus?.stops && isRealLocation) {
-              const cleanCurrentStop = enhancedLocation.currentStop
-                .replace('Arrived at ', '')
-                .replace('Left ', '')
-                .replace('At ', '')
-                .replace('Near ', '')
-                .replace('Approaching ', '')
-                .replace('En route to ', '')
-                .split(',')[0]
-                .trim();
-              
-              const currentStopIndex = student.bus.stops.findIndex(stop => 
-                stop.toLowerCase().includes(cleanCurrentStop.toLowerCase()) ||
-                cleanCurrentStop.toLowerCase().includes(stop.toLowerCase())
-              );
-              
-              // Use the route progress from LocationService (GPS-based)
-              const locationServiceProgress = enhancedLocation.routeProgress || 0;
-              
-              console.log('🛤️ Route Progress Debug:', {
-                rawCurrentStop: enhancedLocation.currentStop,
-                cleanCurrentStop,
-                currentStopIndex,
-                locationServiceProgress: locationServiceProgress + '% (GPS-based)',
-                usingLocationServiceProgress: true,
-                availableStops: student.bus.stops
-              });
-            }
+          }
+        } else {
+          console.log('❌ No driver location available');
+          setStudentBusLocation(null);
+        }
       }
     };
 
     // Initial load
     loadStudentBusLocation();
     
-    // Update every 5 seconds for real-time tracking
-    const locationInterval = setInterval(loadStudentBusLocation, 5000);
+    // Update every 3 seconds for faster cross-device sync
+    const locationInterval = setInterval(loadStudentBusLocation, 3000);
 
     return () => {
       clearInterval(locationInterval);
@@ -364,47 +310,23 @@ export default function StudentDashboard() {
                       <div className="mb-6 p-4 bg-white rounded-xl border-2 border-green-200">
                         <div className="flex items-center justify-between mb-3">
                           <h5 className="text-lg font-bold text-green-800 flex items-center">
-                            🚏 <span className="ml-2">Current Location</span>
+                            🚏 <span className="ml-2">Current Stop</span>
                           </h5>
-                          <div className="flex items-center space-x-2">
-                            <span className={`bg-opacity-20 px-3 py-1 rounded-full text-sm font-semibold ${
-                              studentBusLocation.progressStatus === 'arrived' ? 'bg-green-500 text-green-800' :
-                              studentBusLocation.progressStatus === 'approaching' ? 'bg-blue-500 text-blue-800' :
-                              studentBusLocation.progressStatus === 'left' ? 'bg-orange-500 text-orange-800' :
-                              studentBusLocation.progressStatus === 'enroute' ? 'bg-purple-500 text-purple-800' :
-                              'bg-gray-500 text-gray-800'
-                            }`}>
-                              {studentBusLocation.progressStatus === 'arrived' ? '🎯 Arrived' :
-                               studentBusLocation.progressStatus === 'approaching' ? '🔜 Approaching' :
-                               studentBusLocation.progressStatus === 'left' ? '🚶 Left Stop' :
-                               studentBusLocation.progressStatus === 'enroute' ? '🛣️ En Route' :
-                               'Active'}
-                            </span>
-                          </div>
+                          <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold">
+                            Active
+                          </span>
                         </div>
                         <p className="text-xl font-bold text-green-700 mb-2">
                           {studentBusLocation.currentStop || 'En Route'}
                         </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                          <p className="text-gray-600">
-                            <strong>Next Stop:</strong> {studentBusLocation.nextStop || 'Unknown'}
+                        <p className="text-sm text-gray-600">
+                          <strong>Next Stop:</strong> {studentBusLocation.nextStop || 'Unknown'}
+                        </p>
+                        {studentBusLocation.estimatedArrival && (
+                          <p className="text-sm text-blue-600">
+                            <strong>ETA to Next Stop:</strong> {studentBusLocation.estimatedArrival}
                           </p>
-                          {studentBusLocation.distanceToCurrentStop && (
-                            <p className="text-blue-600">
-                              <strong>Distance to Current:</strong> {(studentBusLocation.distanceToCurrentStop * 1000).toFixed(0)}m
-                            </p>
-                          )}
-                          {studentBusLocation.distanceToNextStop && (
-                            <p className="text-purple-600">
-                              <strong>Distance to Next:</strong> {(studentBusLocation.distanceToNextStop * 1000).toFixed(0)}m
-                            </p>
-                          )}
-                          {studentBusLocation.estimatedArrival && (
-                            <p className="text-orange-600">
-                              <strong>ETA to Next Stop:</strong> {studentBusLocation.estimatedArrival}
-                            </p>
-                          )}
-                        </div>
+                        )}
                       </div>
 
                       {/* Route Progress - Horizontal Train Style */}
@@ -426,7 +348,6 @@ export default function StudentDashboard() {
                                 console.log('🔍 Progress bar calculation - studentBusLocation:', {
                                   isRealLocation: studentBusLocation?.isRealLocation,
                                   routeProgress: studentBusLocation?.routeProgress,
-                                  progressStatus: studentBusLocation?.progressStatus,
                                   currentStop: studentBusLocation?.currentStop,
                                   locationSource: studentBusLocation?.locationSource
                                 });
@@ -468,61 +389,32 @@ export default function StudentDashboard() {
                           {/* Stops */}
                           <div className="flex justify-between items-center relative">
                             {studentData.bus?.stops?.map((stop, index) => {
-                              // Check if this stop matches the current location based on GPS progress
-                              const currentStop = studentBusLocation?.currentStop || '';
-                              
-                              // Enhanced stop matching logic for GPS-based locations
-                              let isCurrentStop = false;
-                              let isPassed = false;
-                              let isNext = false;
-                              
-                              if (studentBusLocation?.isRealLocation && studentBusLocation?.progressStatus) {
-                                // Use GPS-based progress status for more accurate display
-                                const progressStatus = studentBusLocation.progressStatus;
-                                const routeProgress = studentBusLocation.routeProgress || 0;
-                                
-                                // Calculate current stop index based on route progress
-                                const progressBasedStopIndex = Math.floor((routeProgress / 100) * (studentData.bus.stops.length - 1));
-                                
-                                // Determine stop status based on GPS progress
-                                if (progressStatus === 'arrived' && index === progressBasedStopIndex) {
-                                  isCurrentStop = true;
-                                } else if (progressStatus === 'approaching' && index === progressBasedStopIndex + 1) {
-                                  isNext = true;
-                                } else if (index < progressBasedStopIndex) {
-                                  isPassed = true;
-                                } else if (progressStatus === 'left' && index === progressBasedStopIndex) {
-                                  // Just left this stop
-                                  isPassed = true;
-                                }
-                              } else {
-                                // Fallback to string matching for simulated locations
-                                const cleanCurrentStop = currentStop
-                                  .replace('Arrived at ', '')
-                                  .replace('Approaching ', '')
-                                  .replace('Left ', '')
+                              // Improved stop matching logic
+                              const cleanCurrentStop = studentBusLocation?.currentStop ? 
+                                studentBusLocation.currentStop
                                   .replace('At ', '')
                                   .replace('Near ', '')
+                                  .replace('Approaching ', '')
                                   .replace('En route to ', '')
                                   .split(',')[0]
-                                  .trim();
-                                
-                                isCurrentStop = cleanCurrentStop && (
-                                  stop.toLowerCase().includes(cleanCurrentStop.toLowerCase()) ||
-                                  cleanCurrentStop.toLowerCase().includes(stop.toLowerCase())
-                                );
-                                
-                                // Find current stop index for comparison
-                                const currentStopIndex = studentData.bus.stops.findIndex(s => 
-                                  cleanCurrentStop && (
-                                    s.toLowerCase().includes(cleanCurrentStop.toLowerCase()) ||
-                                    cleanCurrentStop.toLowerCase().includes(s.toLowerCase())
-                                  )
-                                );
-                                
-                                isPassed = currentStopIndex >= 0 && index < currentStopIndex;
-                                isNext = currentStopIndex >= 0 && index === currentStopIndex + 1;
-                              }
+                                  .trim() : '';
+                              
+                              // Check if this stop matches the current location
+                              const isCurrentStop = cleanCurrentStop && (
+                                stop.toLowerCase().includes(cleanCurrentStop.toLowerCase()) ||
+                                cleanCurrentStop.toLowerCase().includes(stop.toLowerCase())
+                              );
+                              
+                              // Find current stop index for comparison
+                              const currentStopIndex = studentData.bus.stops.findIndex(s => 
+                                cleanCurrentStop && (
+                                  s.toLowerCase().includes(cleanCurrentStop.toLowerCase()) ||
+                                  cleanCurrentStop.toLowerCase().includes(s.toLowerCase())
+                                )
+                              );
+                              
+                              const isPassed = currentStopIndex >= 0 && index < currentStopIndex;
+                              const isNext = currentStopIndex >= 0 && index === currentStopIndex + 1;
                               
                               return (
                                 <div key={index} className="flex flex-col items-center relative z-10">
@@ -564,13 +456,12 @@ export default function StudentDashboard() {
                                     {/* Status Labels */}
                                     {isCurrentStop && (
                                       <span className="inline-block mt-1 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-bold">
-                                        {studentBusLocation?.progressStatus === 'arrived' ? 'Arrived' :
-                                         studentBusLocation?.progressStatus === 'left' ? 'Left' : 'Current'}
+                                        Current
                                       </span>
                                     )}
                                     {isNext && (
                                       <span className="inline-block mt-1 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
-                                        {studentBusLocation?.progressStatus === 'approaching' ? 'Approaching' : 'Next'}
+                                        Next
                                       </span>
                                     )}
                                     {isPassed && (
@@ -591,7 +482,7 @@ export default function StudentDashboard() {
                             })}
                           </div>
 
-                          {/* Moving Bus Icon with Status */}
+                          {/* Moving Bus Icon */}
                           <div 
                             className="absolute -top-2 transform -translate-x-1/2 transition-all duration-1000"
                             style={{ 
@@ -605,11 +496,9 @@ export default function StudentDashboard() {
                                 if (!studentBusLocation?.currentStop || !studentData.bus?.stops) return 0;
                                 
                                 const cleanCurrentStop = studentBusLocation.currentStop
-                                  .replace('Arrived at ', '')
-                                  .replace('Approaching ', '')
-                                  .replace('Left ', '')
                                   .replace('At ', '')
                                   .replace('Near ', '')
+                                  .replace('Approaching ', '')
                                   .replace('En route to ', '')
                                   .split(',')[0]
                                   .trim();
@@ -626,32 +515,9 @@ export default function StudentDashboard() {
                               })()}%` 
                             }}
                           >
-                            <div className={`text-white p-2 rounded-full shadow-lg ${
-                              studentBusLocation?.progressStatus === 'arrived' ? 'bg-green-500 animate-bounce' :
-                              studentBusLocation?.progressStatus === 'approaching' ? 'bg-blue-500 animate-pulse' :
-                              studentBusLocation?.progressStatus === 'left' ? 'bg-orange-500' :
-                              'bg-blue-500 animate-bounce'
-                            }`}>
+                            <div className="bg-blue-500 text-white p-2 rounded-full shadow-lg animate-bounce">
                               🚌
                             </div>
-                            {/* Status indicator below bus */}
-                            {studentBusLocation?.progressStatus && (
-                              <div className="absolute top-12 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
-                                <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                                  studentBusLocation.progressStatus === 'arrived' ? 'bg-green-500 text-white' :
-                                  studentBusLocation.progressStatus === 'approaching' ? 'bg-blue-500 text-white' :
-                                  studentBusLocation.progressStatus === 'left' ? 'bg-orange-500 text-white' :
-                                  studentBusLocation.progressStatus === 'enroute' ? 'bg-purple-500 text-white' :
-                                  'bg-gray-500 text-white'
-                                }`}>
-                                  {studentBusLocation.progressStatus === 'arrived' ? '🎯 Arrived' :
-                                   studentBusLocation.progressStatus === 'approaching' ? '🔜 Approaching' :
-                                   studentBusLocation.progressStatus === 'left' ? '🚶 Left' :
-                                   studentBusLocation.progressStatus === 'enroute' ? '�️ En Route' :
-                                   'Moving'}
-                                </span>
-                              </div>
-                            )}
                           </div>
                         </div>
 
@@ -664,11 +530,7 @@ export default function StudentDashboard() {
                             <strong>Progress:</strong> {(() => {
                               // Use GPS-based route progress if available (more accurate for real location)
                               if (studentBusLocation?.isRealLocation && studentBusLocation?.routeProgress >= 0) {
-                                const status = studentBusLocation.progressStatus === 'arrived' ? ' (Arrived)' :
-                                              studentBusLocation.progressStatus === 'approaching' ? ' (Approaching)' :
-                                              studentBusLocation.progressStatus === 'left' ? ' (Left Stop)' :
-                                              studentBusLocation.progressStatus === 'enroute' ? ' (En Route)' : '';
-                                return `${Math.min(100, Math.max(0, studentBusLocation.routeProgress))}%${status}`;
+                                return `${Math.min(100, Math.max(0, studentBusLocation.routeProgress))}%`;
                               }
                               
                               // Fallback to string-based calculation for simulated

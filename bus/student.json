@@ -1,0 +1,72 @@
+[
+  {
+    "name": "Amit Sharma",
+    "rollNo": "S101",
+    "email": "amit@example.com",
+    "password": "password1",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f601" }
+  },
+  {
+    "name": "Priya Singh",
+    "rollNo": "S102",
+    "email": "priya@example.com",
+    "password":"password2",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f601" }
+  },
+  {
+    "name": "Ravi Kumar",
+    "rollNo": "S103",
+    "email": "ravi@example.com",
+    "password":"password3",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f601" }
+  },
+  {
+    "name": "Neha Verma",
+    "rollNo": "S104",
+    "email": "neha@example.com",
+    "password":"password4",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f601" }
+  },
+  {
+    "name": "Arjun Patel",
+    "rollNo": "S105",
+    "email": "arjun@example.com",
+    "password":"password5",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f601" }
+  },
+  {
+    "name": "Simran Kaur",
+    "rollNo": "S106",
+    "email": "simran@example.com",
+    "password":"password6",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f602" }
+  },
+  {
+    "name": "Rahul Yadav",
+    "rollNo": "S107",
+    "email": "rahul@example.com",
+    "password":"password7",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f602" }
+  },
+  {
+    "name": "Anjali Gupta",
+    "rollNo": "S108",
+    "email": "anjali@example.com",
+    "password":"password8",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f602" }
+  },
+  {
+    "name": "Manish Rawat",
+    "rollNo": "S109",
+    "email": "manish@example.com",
+    "password":"password9",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f602" }
+  },
+  {
+    "name": "Pooja Mishra",
+    "rollNo": "S110",
+    "email": "pooja@example.com",
+    "password":"password10",
+    "bus": { "$oid": "66d0123456a1b2c3d4e5f602" }
+  }
+]
