@@ -6,6 +6,7 @@ import cors from "cors";
 import Student from "./models/Student.js";
 import Bus from "./models/Bus.js";
 import authRoutes from "./routes/auth.js";
+import connectDB from "./config/database.js";
 
 const app = express();
 
@@ -21,7 +22,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 
 // Connect to DB
-mongoose.connect("mongodb://localhost:27017/bus");
+connectDB();
 
 // API: Get all students
 app.get("/api/students", async (req, res) => {
@@ -35,4 +36,5 @@ app.get("/api/buses", async (req, res) => {
   res.json(buses);
 });
 
-app.listen(3001, () => console.log("Server running on http://localhost:3001"));
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
