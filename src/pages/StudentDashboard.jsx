@@ -65,6 +65,35 @@ export default function StudentDashboard() {
         if (driverLocation) {
           console.log('🚌 Driver location found for student view:', driverLocation);
           
+          // ⚠️ CRITICAL: Validate this is real driver GPS, not campus default
+          const isCampusDefault = (
+            Math.abs(driverLocation.lat - 28.9730) < 0.001 && 
+            Math.abs(driverLocation.lng - 77.6410) < 0.001
+          );
+          
+          if (isCampusDefault && driverLocation.locationSource === 'Campus Default') {
+            console.log('🚫 REJECTED: Campus default location detected, waiting for real driver GPS');
+            setStudentBusLocation(null);
+            return;
+          }
+          
+          // 🔍 Validating location source
+          console.log('🔍 Validating location source:', {
+            source: driverLocation.source || driverLocation.locationSource,
+            isRealLocation: driverLocation.isRealLocation,
+            hasRecentTimestamp: !!driverLocation.timestamp
+          });
+          
+          // Only accept real driver GPS data
+          if (!driverLocation.isRealLocation || 
+              !driverLocation.source || 
+              driverLocation.source === 'campus_default' ||
+              driverLocation.locationSource === 'Campus Default') {
+            console.log('❌ REJECTED: Not from driver dashboard. Source:', driverLocation.source || driverLocation.locationSource);
+            setStudentBusLocation(null);
+            return;
+          }
+          
           // Enhanced location with bus info
           const busInfo = LocationService.busInfo[student.bus.$oid];
           const enhancedLocation = {
