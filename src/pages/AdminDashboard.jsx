@@ -48,6 +48,18 @@ export default function AdminDashboard() {
     }
   ];
 
+  // Load real-time GPS locations function
+  const loadRealTimeLocations = async () => {
+    try {
+      console.log('🔄 Loading real-time locations for admin dashboard...');
+      const locations = await LocationService.getAllRealLocations();
+      console.log('📍 Real GPS locations loaded for admin:', locations);
+      setRealTimeLocations(locations);
+    } catch (error) {
+      console.error('❌ Error loading real-time locations:', error);
+    }
+  };
+
   useEffect(() => {
     fetch('/student.json')
       .then(response => response.json())
@@ -57,12 +69,6 @@ export default function AdminDashboard() {
     loadTodayAttendance();
 
     // Load real-time GPS locations every 5 seconds
-    const loadRealTimeLocations = () => {
-      const locations = LocationService.getAllRealLocations();
-      console.log('Real GPS locations loaded:', locations);
-      setRealTimeLocations(locations);
-    };
-
     loadRealTimeLocations();
     const locationInterval = setInterval(loadRealTimeLocations, 5000);
 
@@ -815,6 +821,17 @@ export default function AdminDashboard() {
                   📍 <span className="ml-3">Real-Time GPS Locations</span>
                 </h2>
                 <p className="text-orange-100 text-lg">Live tracking from driver mobile phones</p>
+                
+                {/* Debug Button */}
+                <button
+                  onClick={async () => {
+                    console.log('🔄 Manual location refresh triggered');
+                    await loadRealTimeLocations();
+                  }}
+                  className="mt-4 px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
+                >
+                  🔄 Refresh Locations (Debug)
+                </button>
               </div>
               
               <div className="p-6">

@@ -656,13 +656,23 @@ export class LocationService {
   }
 
   static async getAllRealLocations() {
+    console.log('🔄 getAllRealLocations: Starting to collect all bus locations...');
     const locations = [];
-    for (const busId of Object.keys(this.busRoutes)) {
+    const busIds = Object.keys(this.busRoutes);
+    console.log('🚌 Bus IDs to check:', busIds);
+    
+    for (const busId of busIds) {
+      console.log(`🔍 Checking location for bus: ${busId}`);
       const location = await this.getRealLocation(busId);
       if (location) {
+        console.log(`✅ Found location for bus ${busId}:`, location);
         locations.push(location);
+      } else {
+        console.log(`❌ No location found for bus ${busId}`);
       }
     }
+    
+    console.log('📦 getAllRealLocations: Final result:', locations);
     return locations;
   }
 
