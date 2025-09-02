@@ -6,4 +6,18 @@ export default defineConfig({
   css: {
     postcss: './postcss.config.js',
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        sw: 'public/sw.js'
+      }
+    }
+  },
+  server: {
+    // Ensure service worker is served with correct MIME type
+    headers: {
+      'Service-Worker-Allowed': '/'
+    }
+  }
 })
