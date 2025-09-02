@@ -46,33 +46,10 @@ class ServiceWorkerManager {
       return false;
     }
 
-    console.log('🚀 Starting AGGRESSIVE background tracking via Service Worker');
+    console.log('🎯 Starting background location tracking via Service Worker');
     
-    this.sendMessage('START_AGGRESSIVE_TRACKING', driverData);
-    
-    // Start heartbeat to keep service worker alive
-    this.startHeartbeat();
-    
+    this.sendMessage('START_LOCATION_TRACKING', driverData);
     return true;
-  }
-
-  // Start heartbeat to keep service worker alive
-  startHeartbeat() {
-    // Send heartbeat every 15 seconds
-    this.heartbeatInterval = setInterval(() => {
-      if (this.isRegistered) {
-        this.sendMessage('HEARTBEAT');
-      }
-    }, 15000);
-    
-    console.log('💓 Service Worker heartbeat started');
-  }
-
-  // Update location in service worker
-  updateLocationInServiceWorker(locationData) {
-    if (!this.isRegistered) return;
-    
-    this.sendMessage('UPDATE_LOCATION', { location: locationData });
   }
 
   // Stop background location tracking
@@ -84,14 +61,7 @@ class ServiceWorkerManager {
 
     console.log('⏹️ Stopping background location tracking');
     
-    this.sendMessage('STOP_TRACKING');
-    
-    // Stop heartbeat
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-    
+    this.sendMessage('STOP_LOCATION_TRACKING');
     return true;
   }
 
@@ -100,11 +70,6 @@ class ServiceWorkerManager {
     if (!this.isRegistered) return;
     
     this.sendMessage('UPDATE_DRIVER_DATA', driverData);
-    
-    // Also update location if available
-    if (driverData.lastKnownLocation) {
-      this.updateLocationInServiceWorker(driverData.lastKnownLocation);
-    }
   }
 
   // Send message to service worker

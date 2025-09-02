@@ -1,208 +1,136 @@
-// Enhanced Service Worker for Aggressive Background Location Tracking
-const CACHE_NAME = 'bus-tracker-v2';
+// Service Worker for Background Location Tracking
+const CACHE_NAME = 'bus-tracker-v1';
 const API_BASE_URL = 'https://bus-tracking-system-backend.onrender.com';
 
-// Install event
+// Install event - cache essential resources
 self.addEventListener('install', (event) => {
-  console.log('🔧 Enhanced Service Worker: Installing...');
+  console.log('🔧 Service Worker: Installing...');
   self.skipWaiting();
 });
 
 // Activate event
 self.addEventListener('activate', (event) => {
-  console.log('✅ Enhanced Service Worker: Activated');
+  console.log('✅ Service Worker: Activated');
   event.waitUntil(self.clients.claim());
 });
 
 // Background location tracking variables
 let locationInterval = null;
-let heartbeatInterval = null;
 let isTrackingActive = false;
 let driverData = null;
 let lastKnownLocation = null;
-let updateCounter = 0;
 
 // Listen for messages from main thread
 self.addEventListener('message', (event) => {
   const { type, data } = event.data;
   
-  console.log('📨 Enhanced SW received message:', type);
+  console.log('📨 Service Worker received message:', type, data);
   
   switch (type) {
-    case 'START_AGGRESSIVE_TRACKING':
-      startAggressiveBackgroundTracking(data);
+    case 'START_LOCATION_TRACKING':
+      startBackgroundLocationTracking(data);
       break;
-    case 'STOP_TRACKING':
-      stopBackgroundTracking();
+    case 'STOP_LOCATION_TRACKING':
+      stopBackgroundLocationTracking();
       break;
-    case 'UPDATE_LOCATION':
-      updateLocationData(data);
+    case 'UPDATE_DRIVER_DATA':
+      driverData = data;
+      if (data.lastKnownLocation) {
+        lastKnownLocation = data.lastKnownLocation;
+      }
       break;
-    case 'HEARTBEAT':
-      // Keep service worker alive
-      respondToHeartbeat();
+    case 'MANUAL_LOCATION_UPDATE':
+      // Receive location from main thread and send to backend
+      if (data.location) {
+        lastKnownLocation = data.location;
+        sendLocationToBackend(data.location);
+      }
       break;
   }
 });
 
-// Start aggressive background tracking
-function startAggressiveBackgroundTracking(data) {
-  console.log('🚀 Enhanced SW: Starting AGGRESSIVE background tracking');
+// Start background location tracking (using location from main thread)
+function startBackgroundLocationTracking(data) {
+  console.log('🎯 Service Worker: Starting background location tracking');
   
   driverData = data;
   isTrackingActive = true;
-  lastKnownLocation = data.lastKnownLocation;
   
-  // Clear any existing intervals
-  if (locationInterval) clearInterval(locationInterval);
-  if (heartbeatInterval) clearInterval(heartbeatInterval);
-  
-  // Send location updates every 3 seconds (very aggressive)
-  locationInterval = setInterval(() => {
-    if (isTrackingActive && lastKnownLocation) {
-      sendBackgroundLocationUpdate();
-    }
-  }, 3000);
-  
-  // Keep service worker alive with heartbeat every 10 seconds
-  heartbeatInterval = setInterval(() => {
-    if (isTrackingActive) {
-      keepServiceWorkerAlive();
-    }
-  }, 10000);
-  
-  // Send immediate update
-  if (lastKnownLocation) {
-    sendBackgroundLocationUpdate();
+  if (data.lastKnownLocation) {
+    lastKnownLocation = data.lastKnownLocation;
   }
   
-  console.log('✅ Enhanced SW: Aggressive tracking started with 3-second intervals');
+  // Clear any existing interval
+  if (locationInterval) {
+    clearInterval(locationInterval);
+  }
+  
+  // Send location updates every 8 seconds using last known location
+  locationInterval = setInterval(() => {
+    if (isTrackingActive && lastKnownLocation && driverData) {
+      // Create updated location with current timestamp
+      const updatedLocation = {
+        ...lastKnownLocation,
+        timestamp: new Date().toISOString(),
+        source: 'service-worker-background',
+        driverId: driverData?.driverId,
+        busId: driverData?.busId,
+        isRealLocation: false // Mark as background update
+      };
+      
+      console.log('📍 Service Worker: Sending background location update');
+      sendLocationToBackend(updatedLocation);
+    }
+  }, 8000);
+  
+  console.log('✅ Service Worker: Background tracking started with 8-second intervals');
 }
 
-// Stop background tracking
-function stopBackgroundTracking() {
-  console.log('⏹️ Enhanced SW: Stopping background tracking');
+// Stop background location tracking
+function stopBackgroundLocationTracking() {
+  console.log('⏹️ Service Worker: Stopping background location tracking');
   
   isTrackingActive = false;
   if (locationInterval) {
     clearInterval(locationInterval);
     locationInterval = null;
   }
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
-  }
 }
 
-// Update location data from main thread
-function updateLocationData(data) {
-  if (data.location) {
-    lastKnownLocation = data.location;
-    console.log('📍 Enhanced SW: Location updated from main thread');
-    
-    // Send immediate update with fresh location
-    sendBackgroundLocationUpdate();
-  }
-}
-
-// Send background location update
-function sendBackgroundLocationUpdate() {
-  if (!lastKnownLocation || !driverData) return;
-  
-  updateCounter++;
-  
-  // Create background location update with current timestamp
-  const backgroundLocation = {
-    lat: lastKnownLocation.lat,
-    lng: lastKnownLocation.lng,
-    timestamp: new Date().toISOString(),
-    busId: driverData.busId,
-    driverName: driverData.name,
-    speed: lastKnownLocation.speed || 0,
-    accuracy: lastKnownLocation.accuracy || 50,
-    source: 'service-worker-aggressive',
-    isRealLocation: false, // Mark as service worker update
-    updateCount: updateCounter
-  };
-  
-  console.log(`� Enhanced SW: Sending background update #${updateCounter}`);
-  
-  // Send to backend
-  sendLocationToBackend(backgroundLocation);
-  
-  // Notify main thread
-  notifyMainThread('BACKGROUND_LOCATION_SENT', {
-    timestamp: backgroundLocation.timestamp,
-    updateCount: updateCounter
-  });
-}
-
-// Keep service worker alive
-function keepServiceWorkerAlive() {
-  console.log('💓 Enhanced SW: Heartbeat - keeping alive');
-  
-  // Send heartbeat to backend to keep connection alive
-  fetch(`${API_BASE_URL}/api/location/health`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' }
-  }).catch(error => {
-    console.log('💓 Heartbeat failed (expected):', error.message);
-  });
-  
-  // Notify main thread we're alive
-  notifyMainThread('SW_HEARTBEAT', { 
-    timestamp: new Date().toISOString(),
-    isTracking: isTrackingActive 
-  });
-}
-
-// Respond to heartbeat from main thread
-function respondToHeartbeat() {
-  notifyMainThread('SW_ALIVE', { 
-    timestamp: new Date().toISOString(),
-    isTracking: isTrackingActive,
-    updateCount: updateCounter
-  });
-}
-
-// Send location data to backend with retry
+// Send location data to backend
 async function sendLocationToBackend(locationData) {
-  const maxRetries = 3;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/location/update-location/${locationData.busId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(locationData)
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log(`✅ Enhanced SW: Location sent (attempt ${attempt})`);
-        return;
-      } else {
-        console.error(`❌ Enhanced SW: Backend error (attempt ${attempt}):`, response.status);
-      }
-    } catch (error) {
-      console.error(`❌ Enhanced SW: Network error (attempt ${attempt}):`, error.message);
-    }
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/driver-location/update`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(locationData)
+    });
     
-    // Wait before retry (exponential backoff)
-    if (attempt < maxRetries) {
-      await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ Service Worker: Location sent to backend:', result);
+      
+      // Notify main thread of successful update
+      notifyMainThread('BACKGROUND_UPDATE_SUCCESS', {
+        timestamp: locationData.timestamp,
+        source: 'service-worker'
+      });
+    } else {
+      console.error('❌ Service Worker: Backend error:', response.status);
+      storeLocationForRetry(locationData);
     }
+  } catch (error) {
+    console.error('❌ Service Worker: Network error:', error);
+    storeLocationForRetry(locationData);
   }
-  
-  // Store for later retry if all attempts failed
-  storeLocationForRetry(locationData);
 }
 
-// Store location for retry using IndexedDB
+// Store location data for retry when network is available
 function storeLocationForRetry(locationData) {
   try {
+    // Use IndexedDB for better storage in Service Worker
     const request = indexedDB.open('BusTrackerDB', 1);
     
     request.onsuccess = (event) => {
@@ -215,7 +143,7 @@ function storeLocationForRetry(locationData) {
         retryTimestamp: Date.now()
       });
       
-      console.log('💾 Enhanced SW: Stored location for retry');
+      console.log('💾 Service Worker: Stored location for retry');
     };
     
     request.onupgradeneeded = (event) => {
@@ -225,7 +153,7 @@ function storeLocationForRetry(locationData) {
       }
     };
   } catch (e) {
-    console.error('❌ Enhanced SW: Storage error:', e);
+    console.error('❌ Service Worker: Storage error:', e);
   }
 }
 
@@ -238,23 +166,14 @@ function notifyMainThread(type, data) {
   });
 }
 
-// Handle push events (for future push notification support)
-self.addEventListener('push', (event) => {
-  console.log('📲 Enhanced SW: Push event received');
-  
-  if (isTrackingActive && lastKnownLocation) {
-    sendBackgroundLocationUpdate();
-  }
-});
-
-// Background sync for retry
+// Background sync for retry failed requests
 self.addEventListener('sync', (event) => {
-  if (event.tag === 'background-location-sync') {
+  if (event.tag === 'location-retry') {
     event.waitUntil(retryPendingLocations());
   }
 });
 
-// Retry pending locations
+// Retry pending location updates
 async function retryPendingLocations() {
   try {
     const request = indexedDB.open('BusTrackerDB', 1);
@@ -270,23 +189,25 @@ async function retryPendingLocations() {
         
         for (const location of pendingLocations) {
           await sendLocationToBackend(location);
+          // Remove from storage after successful retry
           store.delete(location.retryTimestamp);
         }
         
-        console.log('✅ Enhanced SW: Retried pending locations');
+        console.log('✅ Service Worker: Retried pending locations');
       };
     };
   } catch (error) {
-    console.error('❌ Enhanced SW: Retry failed:', error);
+    console.error('❌ Service Worker: Retry failed:', error);
   }
 }
 
-// Handle fetch events - don't interfere with navigation
+// Handle fetch events - avoid interfering with navigation
 self.addEventListener('fetch', (event) => {
-  // Only handle API requests, let everything else pass through
-  if (event.request.url.includes('/api/')) {
+  // Only handle API requests, let navigation requests pass through normally
+  if (event.request.url.includes('/api/') || event.request.url.includes('backend')) {
     event.respondWith(fetch(event.request));
   }
+  // Let all other requests (including navigation) pass through unchanged
 });
 
-console.log('🚀 Enhanced Service Worker: Loaded and ready for AGGRESSIVE background tracking');
+console.log('🚀 Service Worker: Loaded and ready for background location tracking');
