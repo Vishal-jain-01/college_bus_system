@@ -12,4 +12,4 @@ services:
       - key: PORT
         value: 3001
       - key: FRONTEND_URL
-        value: https://college-bus-tracking-system-lime.vercel.app
+        value: https://bus-tracking-system-beta.vercel.app
