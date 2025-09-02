@@ -144,11 +144,11 @@ export class LocationService {
 
   static getCurrentStopFromRoute(progress, currentStop, nextStop) {
     if (progress < 0.1) {
-      return `At ${currentStop.name.split(',')[0]}`;
+      return `Arrived at ${currentStop.name.split(',')[0]}`;
     } else if (progress > 0.9) {
-      return `Approaching ${nextStop.name.split(',')[0]}`;
+      return `Near ${nextStop.name.split(',')[0]}`;
     } else {
-      return `En route to ${nextStop.name.split(',')[0]}`;
+      return `Last stop crossed: ${currentStop.name.split(',')[0]}`;
     }
   }
 
