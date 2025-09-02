@@ -1,5 +1,5 @@
 // Simple Service Worker for Background Location Tracking
-const API_BASE_URL = 'https://bus-tracking-system-1-gh4s.onrender.com';
+const API_BASE_URL = 'https://college-bus-system-main.onrender.com';
 
 let backgroundInterval = null;
 let lastLocation = null;
