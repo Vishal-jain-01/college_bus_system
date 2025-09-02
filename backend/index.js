@@ -56,6 +56,44 @@ app.get("/api/buses", async (req, res) => {
 // Store for real-time location data (in production, use MongoDB)
 const locationData = new Map();
 
+// API: Update driver location (driver posts GPS data) - Service Worker compatible
+app.post("/api/driver-location/update", async (req, res) => {
+  try {
+    const locationInfo = req.body;
+    const { busId, driverId } = locationInfo;
+    
+    // Store location with timestamp
+    const enhancedLocation = {
+      ...locationInfo,
+      timestamp: new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
+      source: locationInfo.source || 'api'
+    };
+    
+    locationData.set(busId || driverId, enhancedLocation);
+    
+    console.log(`📍 Driver location updated for bus ${busId}:`, {
+      lat: locationInfo.latitude,
+      lng: locationInfo.longitude,
+      source: locationInfo.source,
+      timestamp: enhancedLocation.timestamp
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Driver location updated successfully',
+      busId: busId || driverId,
+      timestamp: enhancedLocation.timestamp
+    });
+  } catch (error) {
+    console.error('Error updating driver location:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 // API: Update driver location (driver posts GPS data)
 app.post("/api/location/update-location/:busId", async (req, res) => {
   try {
