@@ -4,7 +4,7 @@ import { AttendanceDB } from '../utils/attendanceDB.js';
 import { LocationService } from '../utils/locationService.js';
 import { ExcelExportService } from '../utils/excelExport.js';
 import swManager from '../utils/serviceWorkerManager.js';
-import BackgroundLocationService from '../utils/backgroundLocationService.js';
+import backgroundLocationService from '../utils/backgroundLocationService.js';
 
 export default function DriverDashboard() {
   const [students, setStudents] = useState([]);
@@ -29,7 +29,7 @@ export default function DriverDashboard() {
   const [locationError, setLocationError] = useState('');
   const [isServiceWorkerActive, setIsServiceWorkerActive] = useState(false);
   const [backgroundTracking, setBackgroundTracking] = useState(false);
-  const [backgroundLocationService] = useState(() => new BackgroundLocationService());
+  const [isBackgroundServiceActive, setIsBackgroundServiceActive] = useState(false);
 
   useEffect(() => {
     const driver = JSON.parse(localStorage.getItem('driverData') || '{}');
@@ -70,62 +70,25 @@ export default function DriverDashboard() {
   useEffect(() => {
     if (!driverData?.busId) return;
 
-    // Initialize enhanced background location service
-    const initBackgroundTracking = async () => {
-      console.log('🚀 Initializing enhanced background location tracking');
-      
-      // Setup callbacks for location updates
-      backgroundLocationService.onUpdate((type, data) => {
-        switch (type) {
-          case 'location_update':
-            console.log('📍 Background location update received:', data);
-            setCurrentLocation({
-              lat: data.latitude,
-              lng: data.longitude,
-              timestamp: data.timestamp,
-              busId: data.busId,
-              driverName: data.driverName,
-              speed: data.speed,
-              accuracy: data.accuracy
-            });
-            setLocationError('');
-            break;
-          case 'location_error':
-            console.error('❌ Background location error:', data);
-            setLocationError(`GPS Error: ${data.message}`);
-            break;
-          case 'backend_success':
-            console.log('✅ Backend success from background service');
-            break;
-          case 'backend_error':
-          case 'network_error':
-            console.log('⚠️ Backend/Network error from background service');
-            break;
-        }
-      });
-
-      // Start background tracking
-      const trackingData = {
-        driverId: driverData.driverId || driverData.busId,
-        busId: driverData.busId,
-        name: driverData.name
-      };
-
-      const started = await backgroundLocationService.startTracking(trackingData);
-      if (started) {
-        setBackgroundTracking(true);
-        setIsTrackingLocation(true);
-        console.log('✅ Enhanced background tracking started');
+    // Initialize Background Location Service
+    const initBackgroundService = async () => {
+      try {
+        const started = await backgroundLocationService.startTracking(driverData);
+        setIsBackgroundServiceActive(started);
+        console.log('🚀 Background Location Service started:', started);
+      } catch (error) {
+        console.error('❌ Background Location Service failed:', error);
+        setIsBackgroundServiceActive(false);
       }
     };
 
-    // Initialize Service Worker as backup
+    // Initialize Service Worker as fallback
     const initServiceWorker = async () => {
       const registered = await swManager.register();
       setIsServiceWorkerActive(registered);
       
       if (registered) {
-        console.log('🚀 Service Worker ready as backup');
+        console.log('🚀 Service Worker ready as fallback');
         
         const swData = {
           driverId: driverData.driverId || driverData.busId,
@@ -135,32 +98,99 @@ export default function DriverDashboard() {
         };
         
         swManager.startBackgroundTracking(swData);
+        setBackgroundTracking(true);
       }
     };
 
-    // Start both tracking methods
-    initBackgroundTracking();
-    initServiceWorker();
-    
-    // Listen for service worker messages
-    const handleSWMessage = (event) => {
-      const { type, data } = event.data;
-      console.log('📡 SW Message received:', type);
-      
-      switch (type) {
-        case 'LOCATION_UPDATE':
-          console.log('📍 SW Location update:', data);
-          break;
-        case 'HEARTBEAT':
-          console.log('� SW Heartbeat');
-          break;
+    const startLocationTracking = () => {
+      setIsTrackingLocation(true);
+      setLocationError('');
+
+      if (navigator.geolocation) {
+        const trackLocation = () => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const location = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+                timestamp: new Date().toISOString(),
+                busId: driverData.busId,
+                driverName: driverData.name,
+                speed: position.coords.speed || 0,
+                accuracy: position.coords.accuracy
+              };
+
+              console.log('📍 Driver GPS location captured:', location);
+              setCurrentLocation(location);
+              
+              // Update Service Worker with latest location
+              if (isServiceWorkerActive) {
+                swManager.updateDriverData({
+                  driverId: driverData.driverId || driverData.busId,
+                  busId: driverData.busId,
+                  name: driverData.name,
+                  lastKnownLocation: location
+                });
+                
+                // Send current location to Service Worker for background updates
+                swManager.sendMessage('MANUAL_LOCATION_UPDATE', { location });
+              }
+              
+              // Send location to backend API
+              LocationService.saveRealLocation(location)
+                .then(result => {
+                  if (result.success) {
+                    console.log('✅ Location posted to backend API successfully');
+                  } else {
+                    console.log('⚠️ Backend API post failed, using localStorage only');
+                  }
+                })
+                .catch(error => {
+                  console.log('⚠️ Location API error:', error.message);
+                });
+              
+              setLocationError('');
+            },
+            (error) => {
+              console.error('Location error:', error);
+              setLocationError(`GPS Error: ${error.message}`);
+              setIsTrackingLocation(false);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 60000
+            }
+          );
+        };
+
+        // Track location immediately
+        trackLocation();
+        
+        // Then track every 12 seconds (main thread tracking - background service handles the rest)
+        const locationInterval = setInterval(trackLocation, 12000);
+
+        return () => clearInterval(locationInterval);
+      } else {
+        setLocationError('GPS not supported by this device');
+        setIsTrackingLocation(false);
       }
     };
+
+    // Start both services
+    initBackgroundService();
+    initServiceWorker();
+    startLocationTracking();
     
-    navigator.serviceWorker?.addEventListener('message', handleSWMessage);
+    // Listen for service worker location updates
+    const handleSWLocationUpdate = (event) => {
+      console.log('📡 Received location update from Service Worker:', event.detail);
+    };
+    
+    window.addEventListener('sw-location-update', handleSWLocationUpdate);
     
     return () => {
-      navigator.serviceWorker?.removeEventListener('message', handleSWMessage);
+      window.removeEventListener('sw-location-update', handleSWLocationUpdate);
     };
   }, [driverData]);
 
@@ -168,42 +198,38 @@ export default function DriverDashboard() {
   useEffect(() => {
     return () => {
       if (backgroundTracking) {
-        backgroundLocationService.stopTracking();
         swManager.stopBackgroundTracking();
-        console.log('🛑 Stopped all background tracking on component unmount');
+        console.log('🛑 Stopped Service Worker tracking on unmount');
+      }
+      if (isBackgroundServiceActive) {
+        backgroundLocationService.stopTracking();
+        console.log('🛑 Stopped Background Location Service on unmount');
       }
     };
-  }, [backgroundTracking]);
+  }, [backgroundTracking, isBackgroundServiceActive]);
 
   // Background tracking control functions
-  const toggleBackgroundTracking = async () => {
+  const toggleBackgroundTracking = () => {
+    if (!isServiceWorkerActive) {
+      alert('❌ Service Worker not available. Background tracking requires Service Worker support.');
+      return;
+    }
+
     if (backgroundTracking) {
-      // Stop tracking
-      backgroundLocationService.stopTracking();
       swManager.stopBackgroundTracking();
       setBackgroundTracking(false);
-      setIsTrackingLocation(false);
-      console.log('⏹️ Manual stop all background tracking');
+      console.log('⏹️ Manual stop background tracking');
     } else {
-      // Start tracking
-      const trackingData = {
+      const swData = {
         driverId: driverData.driverId || driverData.busId,
         busId: driverData.busId,
         name: driverData.name,
         lastKnownLocation: currentLocation
       };
       
-      const started = await backgroundLocationService.startTracking(trackingData);
-      if (started) {
-        // Also start service worker backup
-        if (isServiceWorkerActive) {
-          swManager.startBackgroundTracking(trackingData);
-        }
-        
-        setBackgroundTracking(true);
-        setIsTrackingLocation(true);
-        console.log('▶️ Manual start all background tracking');
-      }
+      swManager.startBackgroundTracking(swData);
+      setBackgroundTracking(true);
+      console.log('▶️ Manual start background tracking');
     }
   };
 
@@ -591,59 +617,49 @@ export default function DriverDashboard() {
                 {isTrackingLocation ? '✅ GPS tracking active' : '❌ GPS not tracking'}
               </p>
               
-              {/* Enhanced Background Tracking Status */}
-              <div className="mt-2 p-3 rounded-lg bg-gradient-to-r from-purple-100 to-blue-100 border border-purple-200">
-                <div className="flex items-center justify-between mb-2">
+              {/* Background Tracking Status */}
+              <div className="mt-2 space-y-2">
+                {/* Background Location Service Status */}
+                <div className="p-2 rounded-lg bg-gradient-to-r from-green-100 to-emerald-100 border border-green-200">
                   <div className="flex items-center space-x-2">
-                    <div className={`w-3 h-3 rounded-full ${
-                      backgroundTracking ? 'bg-purple-500 animate-pulse' : 'bg-gray-400'
+                    <div className={`w-2 h-2 rounded-full ${
+                      isBackgroundServiceActive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
                     }`}></div>
-                    <span className={`text-sm font-medium ${
-                      backgroundTracking ? 'text-purple-700' : 'text-gray-600'
+                    <span className={`text-xs font-medium ${
+                      isBackgroundServiceActive ? 'text-green-700' : 'text-gray-600'
                     }`}>
-                      Enhanced Background Tracking
+                      {isBackgroundServiceActive 
+                        ? '� Advanced Background Tracking (Wake Lock + Visibility API)' 
+                        : '⏸️ Advanced background tracking disabled'}
                     </span>
                   </div>
-                  
-                  {backgroundLocationService?.hasWakeLock() && (
-                    <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full">
-                      🔒 Wake Lock
-                    </span>
+                  {isBackgroundServiceActive && (
+                    <p className="text-xs text-green-600 mt-1">
+                      📱 Works when screen is off • Updates every 5-6 seconds • Wake lock prevents sleep
+                    </p>
                   )}
                 </div>
                 
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className={`p-2 rounded ${
-                    backgroundTracking ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    📱 Page Visibility: {backgroundTracking ? 'Active' : 'Inactive'}
+                {/* Service Worker Status */}
+                <div className="p-2 rounded-lg bg-gradient-to-r from-purple-100 to-blue-100 border border-purple-200">
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      backgroundTracking && isServiceWorkerActive ? 'bg-purple-500 animate-pulse' : 'bg-gray-400'
+                    }`}></div>
+                    <span className={`text-xs font-medium ${
+                      backgroundTracking && isServiceWorkerActive ? 'text-purple-700' : 'text-gray-600'
+                    }`}>
+                      {backgroundTracking && isServiceWorkerActive 
+                        ? '🚀 Service Worker Backup (Fallback Protection)' 
+                        : '⏸️ Service Worker backup disabled'}
+                    </span>
                   </div>
-                  <div className={`p-2 rounded ${
-                    isServiceWorkerActive ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    🔧 Service Worker: {isServiceWorkerActive ? 'Ready' : 'Unavailable'}
-                  </div>
+                  {isServiceWorkerActive && (
+                    <p className="text-xs text-purple-600 mt-1">
+                      🛡️ Fallback protection • Updates every 8 seconds • Offline retry capability
+                    </p>
+                  )}
                 </div>
-                
-                {backgroundTracking && (
-                  <p className="text-xs text-purple-600 mt-2 text-center">
-                    � Tracking every 3 seconds (background) / 5 seconds (foreground)
-                    <br />
-                    📱 Works when screen is off or using other apps
-                  </p>
-                )}
-                
-                {/* Enhanced Toggle Button */}
-                <button
-                  onClick={toggleBackgroundTracking}
-                  className={`mt-3 w-full px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                    backgroundTracking 
-                      ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg' 
-                      : 'bg-purple-500 hover:bg-purple-600 text-white shadow-lg'
-                  }`}
-                >
-                  {backgroundTracking ? '⏹️ Stop Enhanced Tracking' : '🚀 Start Enhanced Tracking'}
-                </button>
               </div>
               
               {locationError && (

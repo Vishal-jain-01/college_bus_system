@@ -1,59 +1,43 @@
-// Enhanced Background Location Service
+// Background Location Service for continuous tracking
 class BackgroundLocationService {
   constructor() {
     this.isTracking = false;
     this.locationInterval = null;
-    this.wakeLock = null;
     this.driverData = null;
-    this.callbacks = [];
+    this.lastKnownLocation = null;
+    this.wakeLock = null;
+    this.visibilityChangeHandler = this.handleVisibilityChange.bind(this);
     
     // Bind methods
-    this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
-    this.handleBeforeUnload = this.handleBeforeUnload.bind(this);
-    
-    // Setup event listeners
-    this.setupEventListeners();
+    this.init();
   }
 
-  setupEventListeners() {
-    // Page Visibility API
-    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+  init() {
+    // Listen for page visibility changes
+    document.addEventListener('visibilitychange', this.visibilityChangeHandler);
     
-    // Before unload
-    window.addEventListener('beforeunload', this.handleBeforeUnload);
-    
-    // Page focus/blur
-    window.addEventListener('focus', () => {
-      console.log('📱 Page focused - adjusting tracking frequency');
-      this.adjustTrackingFrequency('foreground');
-    });
-    
-    window.addEventListener('blur', () => {
-      console.log('📱 Page blurred - switching to background mode');
-      this.adjustTrackingFrequency('background');
-    });
+    // Listen for page lifecycle events
+    document.addEventListener('freeze', this.handlePageFreeze.bind(this));
+    document.addEventListener('resume', this.handlePageResume.bind(this));
   }
 
   async startTracking(driverData) {
-    console.log('🎯 BackgroundLocationService: Starting enhanced tracking');
-    
     this.driverData = driverData;
     this.isTracking = true;
     
-    // Request wake lock to keep screen active (optional)
+    console.log('🎯 Background Location Service: Starting tracking');
+    
+    // Request wake lock to prevent screen from turning off
     await this.requestWakeLock();
     
     // Start location tracking
     this.startLocationUpdates();
     
-    // Register service worker if not already registered
-    await this.ensureServiceWorkerRegistered();
-    
     return true;
   }
 
   stopTracking() {
-    console.log('⏹️ BackgroundLocationService: Stopping tracking');
+    console.log('⏹️ Background Location Service: Stopping tracking');
     
     this.isTracking = false;
     
@@ -62,37 +46,23 @@ class BackgroundLocationService {
       this.locationInterval = null;
     }
     
-    // Release wake lock
     this.releaseWakeLock();
-    
-    return true;
   }
 
   startLocationUpdates() {
     if (this.locationInterval) {
       clearInterval(this.locationInterval);
     }
-    
-    // Initial location
+
+    // Get location immediately
     this.getCurrentLocationAndSend();
     
-    // Set up interval based on page visibility
-    const frequency = document.hidden ? 3000 : 5000; // 3s background, 5s foreground
-    
+    // Then get location every 6 seconds
     this.locationInterval = setInterval(() => {
       if (this.isTracking) {
         this.getCurrentLocationAndSend();
       }
-    }, frequency);
-    
-    console.log(`📍 Location updates started (${frequency}ms interval)`);
-  }
-
-  adjustTrackingFrequency(mode) {
-    if (!this.isTracking) return;
-    
-    // Restart with new frequency
-    this.startLocationUpdates();
+    }, 6000);
   }
 
   getCurrentLocationAndSend() {
@@ -101,55 +71,52 @@ class BackgroundLocationService {
       return;
     }
 
-    const options = {
-      enableHighAccuracy: true,
-      timeout: document.hidden ? 5000 : 10000, // Shorter timeout when hidden
-      maximumAge: document.hidden ? 5000 : 30000
-    };
-
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const locationData = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
+        const location = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          speed: position.coords.speed || 0,
           timestamp: new Date().toISOString(),
-          source: document.hidden ? 'background-hidden' : 'background-visible',
-          driverId: this.driverData?.driverId,
-          busId: this.driverData?.busId,
-          driverName: this.driverData?.name,
-          isRealLocation: true,
-          pageVisible: !document.hidden
+          busId: this.driverData.busId,
+          driverName: this.driverData.name,
+          speed: position.coords.speed || 0,
+          accuracy: position.coords.accuracy,
+          source: document.hidden ? 'background' : 'foreground'
         };
 
-        console.log(`📍 Location captured (${locationData.source}):`, {
-          lat: locationData.latitude,
-          lng: locationData.longitude,
-          hidden: document.hidden
-        });
-
-        // Send to backend
-        this.sendToBackend(locationData);
+        this.lastKnownLocation = location;
+        console.log('📍 Background Service: Location captured:', location);
         
-        // Notify callbacks
-        this.notifyCallbacks('location_update', locationData);
+        // Send to backend
+        this.sendLocationToBackend(location);
       },
       (error) => {
-        console.error('❌ Location error:', error);
-        this.notifyCallbacks('location_error', error);
+        console.error('❌ Background Service: Location error:', error);
+        
+        // Use last known location with updated timestamp
+        if (this.lastKnownLocation) {
+          const fallbackLocation = {
+            ...this.lastKnownLocation,
+            timestamp: new Date().toISOString(),
+            source: 'fallback'
+          };
+          
+          this.sendLocationToBackend(fallbackLocation);
+        }
       },
-      options
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 30000
+      }
     );
   }
 
-  async sendToBackend(locationData) {
+  async sendLocationToBackend(locationData) {
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://bus-tracking-system-backend.onrender.com';
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'https://bus-tracking-system-backend.onrender.com';
       
-      const response = await fetch(`${backendUrl}/api/driver-location/update`, {
+      const response = await fetch(`${API_BASE_URL}/api/driver-location/update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -159,30 +126,27 @@ class BackgroundLocationService {
 
       if (response.ok) {
         const result = await response.json();
-        console.log('✅ Location sent to backend successfully');
-        this.notifyCallbacks('backend_success', result);
+        console.log('✅ Background Service: Location sent to backend');
       } else {
-        console.error('❌ Backend response error:', response.status);
-        this.notifyCallbacks('backend_error', { status: response.status });
+        console.error('❌ Background Service: Backend error:', response.status);
       }
     } catch (error) {
-      console.error('❌ Network error sending location:', error);
-      this.notifyCallbacks('network_error', error);
+      console.error('❌ Background Service: Network error:', error);
     }
   }
 
   async requestWakeLock() {
-    if ('wakeLock' in navigator) {
-      try {
+    try {
+      if ('wakeLock' in navigator) {
         this.wakeLock = await navigator.wakeLock.request('screen');
-        console.log('🔒 Screen wake lock acquired');
+        console.log('🔒 Wake lock acquired - screen will stay on');
         
         this.wakeLock.addEventListener('release', () => {
-          console.log('🔓 Screen wake lock released');
+          console.log('🔓 Wake lock released');
         });
-      } catch (err) {
-        console.error('❌ Wake lock request failed:', err);
       }
+    } catch (err) {
+      console.log('❌ Wake lock failed:', err);
     }
   }
 
@@ -196,75 +160,66 @@ class BackgroundLocationService {
 
   handleVisibilityChange() {
     if (document.hidden) {
-      console.log('📱 Page hidden - switching to background tracking');
-      this.adjustTrackingFrequency('background');
+      console.log('📱 Page hidden - switching to background mode');
+      // Increase frequency when hidden
+      if (this.isTracking) {
+        this.startBackgroundMode();
+      }
     } else {
-      console.log('📱 Page visible - switching to foreground tracking');
-      this.adjustTrackingFrequency('foreground');
-      
-      // Re-acquire wake lock if needed
-      if (this.isTracking && !this.wakeLock) {
-        this.requestWakeLock();
+      console.log('📱 Page visible - switching to foreground mode');
+      // Normal frequency when visible
+      if (this.isTracking) {
+        this.startLocationUpdates();
       }
     }
   }
 
-  handleBeforeUnload() {
-    console.log('🚪 Page unloading - maintaining background tracking via SW');
-    // Service Worker should continue tracking
+  startBackgroundMode() {
+    if (this.locationInterval) {
+      clearInterval(this.locationInterval);
+    }
+
+    // More aggressive tracking when in background (every 5 seconds)
+    this.locationInterval = setInterval(() => {
+      if (this.isTracking) {
+        this.getCurrentLocationAndSend();
+      }
+    }, 5000);
+    
+    console.log('🔄 Background mode: Tracking every 5 seconds');
   }
 
-  async ensureServiceWorkerRegistered() {
-    if ('serviceWorker' in navigator) {
-      try {
-        const registration = await navigator.serviceWorker.register('/sw.js');
-        console.log('✅ Service Worker registered for background support');
-        
-        // Start background tracking via SW
-        if (registration.active) {
-          registration.active.postMessage({
-            type: 'START_LOCATION_TRACKING',
-            data: this.driverData
-          });
-        }
-      } catch (error) {
-        console.error('❌ Service Worker registration failed:', error);
-      }
+  handlePageFreeze() {
+    console.log('🥶 Page frozen - storing last location');
+    if (this.lastKnownLocation) {
+      localStorage.setItem('lastDriverLocation', JSON.stringify(this.lastKnownLocation));
     }
   }
 
-  // Callback system for UI updates
-  onUpdate(callback) {
-    this.callbacks.push(callback);
+  handlePageResume() {
+    console.log('🔥 Page resumed - restarting location tracking');
+    if (this.isTracking) {
+      this.startLocationUpdates();
+    }
   }
 
-  notifyCallbacks(type, data) {
-    this.callbacks.forEach(callback => {
-      try {
-        callback(type, data);
-      } catch (error) {
-        console.error('❌ Callback error:', error);
-      }
-    });
+  getLastKnownLocation() {
+    return this.lastKnownLocation;
   }
 
-  // Status getters
   isActive() {
     return this.isTracking;
   }
 
-  hasWakeLock() {
-    return !!this.wakeLock;
-  }
-
-  getStatus() {
-    return {
-      tracking: this.isTracking,
-      wakeLock: !!this.wakeLock,
-      hidden: document.hidden,
-      serviceWorker: 'serviceWorker' in navigator
-    };
+  destroy() {
+    this.stopTracking();
+    document.removeEventListener('visibilitychange', this.visibilityChangeHandler);
+    document.removeEventListener('freeze', this.handlePageFreeze.bind(this));
+    document.removeEventListener('resume', this.handlePageResume.bind(this));
   }
 }
 
-export default BackgroundLocationService;
+// Create singleton instance
+const backgroundLocationService = new BackgroundLocationService();
+
+export default backgroundLocationService;
