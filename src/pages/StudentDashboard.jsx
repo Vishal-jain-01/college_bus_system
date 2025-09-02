@@ -319,9 +319,46 @@ export default function StudentDashboard() {
                         <p className="text-xl font-bold text-green-700 mb-2">
                           {studentBusLocation.currentStop || 'En Route'}
                         </p>
-                        <p className="text-sm text-gray-600">
+                        
+                        {/* Distance to Current Stop */}
+                        {studentBusLocation.distanceToCurrentStop !== undefined && (
+                          <div className="flex items-center justify-between bg-green-50 p-2 rounded-lg mb-2">
+                            <span className="text-sm text-green-600">
+                              <strong>📍 Distance to Current Stop:</strong>
+                            </span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                              studentBusLocation.distanceToCurrentStop <= 0.3 
+                                ? 'bg-green-500 text-white' 
+                                : studentBusLocation.distanceToCurrentStop <= 1.0
+                                ? 'bg-yellow-500 text-white'
+                                : 'bg-red-500 text-white'
+                            }`}>
+                              {studentBusLocation.distanceToCurrentStop.toFixed(2)} km
+                            </span>
+                          </div>
+                        )}
+                        
+                        <p className="text-sm text-gray-600 mb-1">
                           <strong>Next Stop:</strong> {studentBusLocation.nextStop || 'Unknown'}
                         </p>
+                        
+                        {/* Distance to Next Stop */}
+                        {studentBusLocation.distanceToNextStop !== undefined && (
+                          <div className="flex items-center justify-between bg-blue-50 p-2 rounded-lg mb-2">
+                            <span className="text-sm text-blue-600">
+                              <strong>🎯 Distance to Next Stop:</strong>
+                            </span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                              studentBusLocation.distanceToNextStop <= 0.5 
+                                ? 'bg-blue-500 text-white' 
+                                : studentBusLocation.distanceToNextStop <= 2.0
+                                ? 'bg-indigo-500 text-white'
+                                : 'bg-purple-500 text-white'
+                            }`}>
+                              {studentBusLocation.distanceToNextStop.toFixed(2)} km
+                            </span>
+                          </div>
+                        )}
                         {studentBusLocation.estimatedArrival && (
                           <p className="text-sm text-blue-600">
                             <strong>ETA to Next Stop:</strong> {studentBusLocation.estimatedArrival}
