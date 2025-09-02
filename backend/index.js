@@ -23,7 +23,7 @@ app.use(cors({
     process.env.FRONTEND_URL
   ].filter(Boolean),  // Remove undefined values
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "Cache-Control"],
   credentials: true
 })); 
 

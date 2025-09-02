@@ -588,14 +588,13 @@ export class LocationService {
       const backendUrl = this.getBackendUrl();
       
       try {
-        const apiUrl = `${backendUrl}/api/location/current-location/${busId}`;
+        const apiUrl = `${backendUrl}/api/location/current-location/${busId}?t=${Date.now()}`;
         console.log('📡 Fetching fresh location from backend:', apiUrl);
         
         const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache'
+            'Content-Type': 'application/json'
           }
         });
         
