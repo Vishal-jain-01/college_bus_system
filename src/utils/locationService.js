@@ -359,7 +359,6 @@ export class LocationService {
     // Distance thresholds (in km)
     const AT_STOP_THRESHOLD = 0.3;     // 300m - At the stop
     const NEAR_STOP_THRESHOLD = 1.0;   // 1km - Near the stop
-    const LEFT_STOP_THRESHOLD = 1.5;   // 1.5km - Left the stop
 
     // At current stop (within 300m)
     if (minDistance <= AT_STOP_THRESHOLD) {
@@ -370,23 +369,18 @@ export class LocationService {
     if (nextStop) {
       const distanceToNext = this.calculateDistance(lat, lng, nextStop.lat, nextStop.lng);
       
-      // Approaching next stop (within 1km of next stop and closer to next than current)
+      // Near next stop (within 1km of next stop and closer to next than current)
       if (distanceToNext <= NEAR_STOP_THRESHOLD && distanceToNext < minDistance) {
-        return `Approaching ${nextStop.name}`;
+        return `Near ${nextStop.name}`;
       }
     }
 
-    // Left current stop but not near next stop yet
-    if (minDistance > AT_STOP_THRESHOLD && minDistance <= LEFT_STOP_THRESHOLD) {
-      return `Left ${closestStop.name}`;
+    // Left current stop - show last stop crossed
+    if (minDistance > AT_STOP_THRESHOLD) {
+      return `Last stop crossed: ${closestStop.name}`;
     }
 
-    // En route between stops
-    if (nextStop) {
-      return `En route to ${nextStop.name}`;
-    } else {
-      return `Near ${closestStop.name}`;
-    }
+    return `Near ${closestStop.name}`;
   }
 
   static getNextStop(lat, lng, busId) {
@@ -406,6 +400,23 @@ export class LocationService {
     });
 
     const AT_STOP_THRESHOLD = 0.3; // 300m
+    const NEAR_STOP_THRESHOLD = 1.0; // 1km
+
+    // Check if we're near next stop
+    if (closestStopIndex < route.length - 1) {
+      const nextStop = route[closestStopIndex + 1];
+      const distanceToNext = this.calculateDistance(lat, lng, nextStop.lat, nextStop.lng);
+      
+      // If we're closer to next stop, show the stop after that
+      if (distanceToNext <= NEAR_STOP_THRESHOLD && distanceToNext < minDistance) {
+        // We're near the next stop, so show the stop after that as "next"
+        if (closestStopIndex + 2 < route.length) {
+          return route[closestStopIndex + 2].name;
+        } else {
+          return 'Final Destination';
+        }
+      }
+    }
 
     // If we're at a stop (within 300m), return the next stop
     if (minDistance <= AT_STOP_THRESHOLD) {
@@ -416,16 +427,8 @@ export class LocationService {
       }
     }
 
-    // If we're between stops, check if we're closer to the next stop
+    // Default: show next stop in route
     if (closestStopIndex < route.length - 1) {
-      const nextStopDistance = this.calculateDistance(lat, lng, route[closestStopIndex + 1].lat, route[closestStopIndex + 1].lng);
-      
-      // If closer to next stop, show the stop after that
-      if (nextStopDistance < minDistance && closestStopIndex + 1 < route.length - 1) {
-        return route[closestStopIndex + 2].name;
-      }
-      
-      // Otherwise, next stop is the one after current closest
       return route[closestStopIndex + 1].name;
     }
 
