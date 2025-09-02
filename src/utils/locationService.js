@@ -462,25 +462,13 @@ export class LocationService {
 
     // Calculate progress based on actual position along route
     if (nextStop) {
-      // Calculate total distance between current and next stop
-      const totalSegmentDistance = this.calculateDistance(
-        route[closestStopIndex].lat, route[closestStopIndex].lng,
-        nextStop.lat, nextStop.lng
-      );
-      
-      // Calculate distance from current stop
-      const distanceFromCurrentStop = this.calculateDistance(
-        lat, lng, 
-        route[closestStopIndex].lat, route[closestStopIndex].lng
-      );
-      
       // Calculate distance to next stop
       const distanceToNextStop = this.calculateDistance(
         lat, lng, 
         nextStop.lat, nextStop.lng
       );
 
-      // Determine if at stop, approaching, or en route
+      // Determine status and progress
       if (minDistance <= AT_STOP_THRESHOLD) {
         // At current stop
         progressPercentage = Math.round((closestStopIndex / (route.length - 1)) * 100);
@@ -490,20 +478,18 @@ export class LocationService {
         progressPercentage = Math.round((nextStopIndex / (route.length - 1)) * 100);
         status = 'arrived';
       } else {
-        // En route - calculate precise position between stops
-        let segmentProgress = 0;
+        // Between stops - calculate based on movement direction
+        const totalSegmentDistance = this.calculateDistance(
+          route[closestStopIndex].lat, route[closestStopIndex].lng,
+          nextStop.lat, nextStop.lng
+        );
         
-        // Use the smaller of the two distances to determine if closer to current or next stop
-        if (distanceFromCurrentStop < distanceToNextStop) {
-          // Closer to current stop - progress from 0 to 0.5 of segment
-          segmentProgress = Math.min(0.5, distanceFromCurrentStop / totalSegmentDistance);
-        } else {
-          // Closer to next stop - progress from 0.5 to 1.0 of segment
-          segmentProgress = 0.5 + Math.min(0.5, (totalSegmentDistance - distanceToNextStop) / totalSegmentDistance);
-        }
+        // Calculate how far along the segment we are
+        const distanceFromCurrent = minDistance;
+        let segmentProgress = Math.min(0.8, distanceFromCurrent / totalSegmentDistance);
         
         progressPercentage = Math.round(((closestStopIndex + segmentProgress) / (route.length - 1)) * 100);
-        status = distanceToNextStop <= 1.0 ? 'approaching' : 'enroute';
+        status = distanceToNextStop <= 1.0 ? 'approaching' : 'moving';
       }
     } else {
       // At or near final stop
@@ -511,20 +497,8 @@ export class LocationService {
       status = minDistance <= AT_STOP_THRESHOLD ? 'arrived' : 'near_final';
     }
 
-    // Ensure percentage is between 0 and 100 and doesn't go backwards
+    // Ensure percentage is between 0 and 100
     progressPercentage = Math.max(0, Math.min(100, progressPercentage));
-    
-    // Prevent progress from going backwards by checking localStorage
-    const lastProgressKey = `last_progress_${busId}`;
-    const lastProgress = parseInt(localStorage.getItem(lastProgressKey) || '0');
-    
-    // Only update if progress is moving forward or is a significant change
-    if (progressPercentage >= lastProgress || Math.abs(progressPercentage - lastProgress) > 10) {
-      localStorage.setItem(lastProgressKey, progressPercentage.toString());
-    } else {
-      // Use last known progress to prevent backwards movement
-      progressPercentage = lastProgress;
-    }
 
     return {
       completed: closestStopIndex,
@@ -610,43 +584,53 @@ export class LocationService {
 
   static async getRealLocation(busId) {
     try {
-      // Try to get from backend API first (for cross-device sync)
+      // Always try to get from backend API first for latest data
       const backendUrl = this.getBackendUrl();
       
       try {
         const apiUrl = `${backendUrl}/api/location/current-location/${busId}`;
-        console.log('📡 Fetching from backend API:', apiUrl);
+        console.log('📡 Fetching fresh location from backend:', apiUrl);
         
-        const response = await fetch(apiUrl);
-        console.log('📡 Backend API response status:', response.status);
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache'
+          }
+        });
+        
+        console.log('📡 Backend response status:', response.status);
         
         if (response.ok) {
           const data = await response.json();
-          console.log('📡 Backend API response data:', data);
+          console.log('📡 Backend response data:', data);
           
           if (data.success && data.location) {
-            console.log('✅ Got FRESH location from backend API:', data.location);
+            console.log('✅ Got LATEST location from backend:', data.location);
+            
+            // Update localStorage with latest data
+            localStorage.setItem(`latest_location_${busId}`, JSON.stringify(data.location));
+            
             return data.location;
           } else {
-            console.log('⚠️ Backend API returned no location data:', data.message);
+            console.log('⚠️ Backend returned no location data:', data.message);
           }
         } else {
           const errorText = await response.text();
-          console.log('⚠️ Backend API request failed with status:', response.status, 'Error:', errorText);
+          console.log('⚠️ Backend request failed:', response.status, errorText);
         }
       } catch (backendError) {
-        console.log('⚠️ Backend API error:', backendError.message);
-        console.error('Full backend error:', backendError);
+        console.log('⚠️ Backend error:', backendError.message);
       }
 
-      // Fallback to localStorage only if backend is not available
+      // Fallback to localStorage only if backend fails
       const latest = localStorage.getItem(`latest_location_${busId}`);
       if (latest) {
-        console.log('📦 Using localStorage fallback (same device only)');
+        console.log('📦 Using localStorage fallback');
         return JSON.parse(latest);
       }
       
-      console.log('❌ No location data found (backend or localStorage)');
+      console.log('❌ No location data available');
       return null;
     } catch (error) {
       console.error('Error getting real location:', error);
