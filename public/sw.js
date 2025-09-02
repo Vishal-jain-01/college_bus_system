@@ -1,6 +1,6 @@
 // Service Worker for Background Location Tracking
 const CACHE_NAME = 'bus-tracker-v1';
-const API_BASE_URL = 'https://bus-tracking-system-backend.onrender.com';
+const API_BASE_URL = 'https://bus-tracking-system-1-gh4s.onrender.com';
 
 // Install event - cache essential resources
 self.addEventListener('install', (event) => {
@@ -44,6 +44,13 @@ self.addEventListener('message', (event) => {
     case 'UPDATE_DRIVER_DATA':
       driverData = data;
       break;
+    case 'POST_LOCATION':
+      // Handle direct location posting from main thread
+      if (data) {
+        console.log('📤 Service Worker: Received location from main thread:', data);
+        sendLocationToBackend(data);
+      }
+      break;
   }
 });
 
@@ -83,66 +90,56 @@ function stopBackgroundLocationTracking() {
 
 // Get current location and send to backend
 function getCurrentLocationAndSend() {
-  if (!navigator.geolocation) {
-    console.error('❌ Geolocation not supported');
+  // Service Workers don't have direct access to geolocation
+  // Instead, we'll use the last known location from the main thread
+  if (!driverData || !driverData.lastKnownLocation) {
+    console.log('⚠️ Service Worker: No location data available from main thread');
     return;
   }
   
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const locationData = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-        timestamp: new Date().toISOString(),
-        source: 'service-worker-background',
-        driverId: driverData?.driverId,
-        busId: driverData?.busId,
-        isRealLocation: true
-      };
-      
-      console.log('📍 Service Worker: Got location:', locationData);
-      
-      // Send to backend API
-      sendLocationToBackend(locationData);
-      
-      // Notify main thread if it's listening
-      notifyMainThread('LOCATION_UPDATE', locationData);
-    },
-    (error) => {
-      console.error('❌ Service Worker: Location error:', error);
-      
-      // Try to send last known location or fallback
-      if (driverData?.lastKnownLocation) {
-        const fallbackData = {
-          ...driverData.lastKnownLocation,
-          timestamp: new Date().toISOString(),
-          source: 'service-worker-fallback',
-          driverId: driverData?.driverId,
-          busId: driverData?.busId,
-          isRealLocation: false
-        };
-        
-        sendLocationToBackend(fallbackData);
-      }
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 30000
-    }
-  );
+  // Use the last known location with updated timestamp
+  const locationData = {
+    latitude: driverData.lastKnownLocation.lat,
+    longitude: driverData.lastKnownLocation.lng,
+    accuracy: driverData.lastKnownLocation.accuracy || 10,
+    timestamp: new Date().toISOString(),
+    source: 'service-worker-background',
+    driverId: driverData?.driverId,
+    busId: driverData?.busId,
+    isRealLocation: true
+  };
+  
+  console.log('📍 Service Worker: Using last known location:', locationData);
+  
+  // Send to backend API
+  sendLocationToBackend(locationData);
+  
+  // Notify main thread if it's listening
+  notifyMainThread('LOCATION_UPDATE', locationData);
 }
 
 // Send location data to backend
 async function sendLocationToBackend(locationData) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/driver-location/update`, {
+    // Convert main thread location format to backend format
+    const backendLocationData = {
+      lat: locationData.lat || locationData.latitude,
+      lng: locationData.lng || locationData.longitude,
+      timestamp: locationData.timestamp,
+      busId: locationData.busId || driverData?.busId,
+      driverName: locationData.driverName || driverData?.name,
+      speed: locationData.speed || 0,
+      accuracy: locationData.accuracy || 10,
+      source: locationData.source || 'service-worker-background'
+    };
+
+    const busId = backendLocationData.busId;
+    const response = await fetch(`${API_BASE_URL}/api/location/update-location/${busId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(locationData)
+      body: JSON.stringify(backendLocationData)
     });
     
     if (response.ok) {

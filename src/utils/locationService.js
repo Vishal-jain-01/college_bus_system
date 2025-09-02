@@ -1,4 +1,14 @@
 export class LocationService {
+  // Hard-coded backup URL in case environment variables fail
+  static BACKUP_BACKEND_URL = 'https://bus-tracking-system-1-gh4s.onrender.com';
+  
+  static getBackendUrl() {
+    const envUrl = import.meta.env.VITE_BACKEND_URL;
+    const backendUrl = envUrl && envUrl !== 'undefined' ? envUrl : this.BACKUP_BACKEND_URL;
+    console.log('🔧 Backend URL resolved:', { envUrl, backendUrl, usingBackup: !envUrl || envUrl === 'undefined' });
+    return backendUrl;
+  }
+
   static busRoutes = {
     '66d0123456a1b2c3d4e5f601': [
       { lat: 28.9730, lng: 77.6410, name: 'MIET Campus' },
@@ -289,27 +299,38 @@ export class LocationService {
       };
 
       // Save to backend API (optional - fallback to localStorage if backend not available)
+      let backendSuccess = false;
       try {
-        const backendUrl = import.meta.env.VITE_BACKEND_URL;
-        if (backendUrl && backendUrl !== 'undefined') {
-          const response = await fetch(`${backendUrl}/api/location/update-location/${locationData.busId}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(enhancedLocationData)
-          });
+        const backendUrl = this.getBackendUrl();
+        console.log('🚀 Posting location to backend:', backendUrl);
+        console.log('📦 Location data being sent:', enhancedLocationData);
+        
+        const response = await fetch(`${backendUrl}/api/location/update-location/${locationData.busId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(enhancedLocationData)
+        });
 
-          if (response.ok) {
-            console.log('✅ Location saved to backend successfully');
+        console.log('📡 Backend response status:', response.status);
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log('📡 Backend response data:', result);
+          if (result.success) {
+            console.log('✅ Location saved to backend successfully:', result);
+            backendSuccess = true;
           } else {
-            console.log('⚠️ Backend save failed, using localStorage only');
+            console.log('⚠️ Backend responded but save failed:', result);
           }
         } else {
-          console.log('ℹ️ Backend URL not configured, using localStorage only');
+          const errorText = await response.text();
+          console.log('⚠️ Backend save failed with status:', response.status, 'Error:', errorText);
         }
       } catch (backendError) {
         console.log('⚠️ Backend save error, using localStorage only:', backendError.message);
+        console.error('Full error:', backendError);
       }
 
       // Also save to localStorage as fallback
@@ -328,7 +349,11 @@ export class LocationService {
       localStorage.setItem(key, JSON.stringify(existingData));
       localStorage.setItem(`latest_location_${locationData.busId}`, JSON.stringify(enhancedLocationData));
 
-      return { success: true };
+      return { 
+        success: true, 
+        backendSuccess,
+        message: backendSuccess ? 'Saved to backend and localStorage' : 'Saved to localStorage only'
+      };
     } catch (error) {
       console.error('Error saving real location:', error);
       return { success: false, error: error.message };
@@ -587,26 +612,32 @@ export class LocationService {
   static async getRealLocation(busId) {
     try {
       // Try to get from backend API first (for cross-device sync)
-      const backendUrl = import.meta.env.VITE_BACKEND_URL;
-      if (backendUrl && backendUrl !== 'undefined') {
-        try {
-          const response = await fetch(`${backendUrl}/api/location/current-location/${busId}`);
-          if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.location) {
-              console.log('✅ Got FRESH location from backend API:', data.location);
-              return data.location;
-            } else {
-              console.log('⚠️ Backend API returned no location data');
-            }
+      const backendUrl = this.getBackendUrl();
+      
+      try {
+        const apiUrl = `${backendUrl}/api/location/current-location/${busId}`;
+        console.log('📡 Fetching from backend API:', apiUrl);
+        
+        const response = await fetch(apiUrl);
+        console.log('📡 Backend API response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('📡 Backend API response data:', data);
+          
+          if (data.success && data.location) {
+            console.log('✅ Got FRESH location from backend API:', data.location);
+            return data.location;
           } else {
-            console.log('⚠️ Backend API request failed with status:', response.status);
+            console.log('⚠️ Backend API returned no location data:', data.message);
           }
-        } catch (backendError) {
-          console.log('⚠️ Backend API error:', backendError.message);
+        } else {
+          const errorText = await response.text();
+          console.log('⚠️ Backend API request failed with status:', response.status, 'Error:', errorText);
         }
-      } else {
-        console.log('ℹ️ Backend URL not configured, using localStorage only');
+      } catch (backendError) {
+        console.log('⚠️ Backend API error:', backendError.message);
+        console.error('Full backend error:', backendError);
       }
 
       // Fallback to localStorage only if backend is not available

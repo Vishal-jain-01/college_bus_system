@@ -68,6 +68,30 @@ export default function DriverDashboard() {
   useEffect(() => {
     if (!driverData?.busId) return;
 
+    // Test backend connectivity first
+    const testBackendConnection = async () => {
+      try {
+        const backendUrl = import.meta.env.VITE_BACKEND_URL;
+        console.log('🧪 Testing backend connection to:', backendUrl);
+        
+        if (!backendUrl || backendUrl === 'undefined') {
+          console.log('❌ Backend URL not configured');
+          return;
+        }
+
+        const response = await fetch(`${backendUrl}/api/location/current-location/${driverData.busId}`);
+        if (response.ok) {
+          console.log('✅ Backend connection successful');
+        } else {
+          console.log('⚠️ Backend connection failed with status:', response.status);
+        }
+      } catch (error) {
+        console.log('❌ Backend connection test failed:', error.message);
+      }
+    };
+
+    testBackendConnection();
+
     // Initialize Service Worker for background tracking
     const initServiceWorker = async () => {
       const registered = await swManager.register();
@@ -111,28 +135,41 @@ export default function DriverDashboard() {
               console.log('🌐 Backend URL:', import.meta.env.VITE_BACKEND_URL);
               setCurrentLocation(location);
               
-              // Update Service Worker with latest location
+              // Update Service Worker with latest location (critical for background tracking)
               if (isServiceWorkerActive) {
-                swManager.updateDriverData({
+                const swData = {
                   driverId: driverData.driverId || driverData.busId,
                   busId: driverData.busId,
                   name: driverData.name,
                   lastKnownLocation: location
-                });
+                };
+                swManager.updateDriverData(swData);
+                console.log('🔄 Updated Service Worker with fresh location');
               }
               
               // Send location to backend API AND localStorage for cross-device sync
               LocationService.saveRealLocation(location)
                 .then(result => {
                   if (result.success) {
-                    console.log('✅ Location posted to backend API successfully');
+                    console.log('✅ Location save result:', result.message);
+                    if (result.backendSuccess) {
+                      console.log('🌐 ✅ Backend API post successful - students will get fresh data');
+                    } else {
+                      console.log('📦 ⚠️ Backend API post failed - using localStorage only (same device)');
+                    }
                   } else {
-                    console.log('⚠️ Backend API post failed, using localStorage only');
+                    console.log('❌ Location save failed:', result.error);
                   }
                 })
                 .catch(error => {
                   console.log('⚠️ Location API error:', error.message);
                 });
+              
+              // Also send to Service Worker for redundant background posting
+              if (isServiceWorkerActive) {
+                swManager.sendLocationToBackground(location);
+                console.log('📤 Sent location to Service Worker for background posting');
+              }
               
               setLocationError('');
             },

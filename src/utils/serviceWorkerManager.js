@@ -72,6 +72,13 @@ class ServiceWorkerManager {
     this.sendMessage('UPDATE_DRIVER_DATA', driverData);
   }
 
+  // Send location data directly to Service Worker for background posting
+  sendLocationToBackground(locationData) {
+    if (!this.isRegistered) return;
+    
+    this.sendMessage('POST_LOCATION', locationData);
+  }
+
   // Send message to service worker
   sendMessage(type, data = null) {
     if (!this.serviceWorker) {
