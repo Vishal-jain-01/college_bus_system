@@ -28,6 +28,7 @@ export default function DriverDashboard() {
   const [locationError, setLocationError] = useState('');
   const [isServiceWorkerActive, setIsServiceWorkerActive] = useState(false);
   const [backgroundTracking, setBackgroundTracking] = useState(false);
+  const [wakeLock, setWakeLock] = useState(null);
 
   useEffect(() => {
     const driver = JSON.parse(localStorage.getItem('driverData') || '{}');
@@ -135,16 +136,10 @@ export default function DriverDashboard() {
               console.log('🌐 Backend URL:', import.meta.env.VITE_BACKEND_URL);
               setCurrentLocation(location);
               
-              // Update Service Worker with latest location (critical for background tracking)
+              // CRITICAL: Send fresh location to Service Worker for background posting
               if (isServiceWorkerActive) {
-                const swData = {
-                  driverId: driverData.driverId || driverData.busId,
-                  busId: driverData.busId,
-                  name: driverData.name,
-                  lastKnownLocation: location
-                };
-                swManager.updateDriverData(swData);
-                console.log('🔄 Updated Service Worker with fresh location');
+                swManager.sendLocationData(location);
+                console.log('� Sent fresh GPS location to Service Worker for background tracking');
               }
               
               // Send location to backend API AND localStorage for cross-device sync
@@ -203,6 +198,39 @@ export default function DriverDashboard() {
     initServiceWorker();
     startLocationTracking();
     
+    // Request Wake Lock to prevent screen from sleeping (optional but helpful)
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          const wakeLockObj = await navigator.wakeLock.request('screen');
+          setWakeLock(wakeLockObj);
+          console.log('🔒 Wake Lock acquired - screen will stay on');
+          
+          wakeLockObj.addEventListener('release', () => {
+            console.log('🔓 Wake Lock released');
+            setWakeLock(null);
+          });
+        } else {
+          console.log('ℹ️ Wake Lock API not supported');
+        }
+      } catch (err) {
+        console.log('⚠️ Wake Lock request failed:', err.message);
+      }
+    };
+    
+    requestWakeLock();
+    
+    // Listen for page visibility changes to ensure background tracking continues
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('📱 Page hidden - background Service Worker should continue tracking');
+      } else {
+        console.log('👀 Page visible - resuming foreground tracking');
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     // Listen for service worker location updates
     const handleSWLocationUpdate = (event) => {
       console.log('📡 Received location update from Service Worker:', event.detail);
@@ -212,8 +240,15 @@ export default function DriverDashboard() {
     
     return () => {
       window.removeEventListener('sw-location-update', handleSWLocationUpdate);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      
+      // Release Wake Lock on cleanup
+      if (wakeLock) {
+        wakeLock.release();
+        console.log('🔓 Wake Lock released on cleanup');
+      }
     };
-  }, [driverData]);
+  }, [driverData, wakeLock]);
 
   // Cleanup Service Worker on unmount
   useEffect(() => {
@@ -635,8 +670,8 @@ export default function DriverDashboard() {
               </p>
               
               {/* Background Tracking Status */}
-              <div className="mt-2 p-2 rounded-lg bg-gradient-to-r from-purple-100 to-blue-100 border border-purple-200">
-                <div className="flex items-center space-x-2">
+              <div className="mt-2 p-3 rounded-lg bg-gradient-to-r from-purple-100 to-blue-100 border border-purple-200">
+                <div className="flex items-center space-x-2 mb-2">
                   <div className={`w-2 h-2 rounded-full ${
                     backgroundTracking && isServiceWorkerActive ? 'bg-purple-500 animate-pulse' : 'bg-gray-400'
                   }`}></div>
@@ -648,10 +683,25 @@ export default function DriverDashboard() {
                       : '⏸️ Background tracking disabled'}
                   </span>
                 </div>
+                
+                {/* Wake Lock Status */}
+                <div className="flex items-center space-x-2 mb-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    wakeLock ? 'bg-orange-500 animate-pulse' : 'bg-gray-400'
+                  }`}></div>
+                  <span className={`text-xs font-medium ${
+                    wakeLock ? 'text-orange-700' : 'text-gray-600'
+                  }`}>
+                    {wakeLock ? '🔒 Screen wake lock active' : '💤 No wake lock'}
+                  </span>
+                </div>
+                
                 {isServiceWorkerActive && (
-                  <p className="text-xs text-purple-600 mt-1">
-                    📱 Location updates every 5 seconds even when app is minimized
-                  </p>
+                  <div className="text-xs text-purple-600 space-y-1">
+                    <p>📱 Location updates every 10 seconds in background</p>
+                    <p>🌐 Continues posting to backend when app is minimized</p>
+                    {wakeLock && <p>🔒 Screen will stay on during tracking</p>}
+                  </div>
                 )}
                 
                 {/* Background Tracking Toggle */}
