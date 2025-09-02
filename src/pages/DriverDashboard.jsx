@@ -4,7 +4,6 @@ import { AttendanceDB } from '../utils/attendanceDB.js';
 import { LocationService } from '../utils/locationService.js';
 import { ExcelExportService } from '../utils/excelExport.js';
 import swManager from '../utils/serviceWorkerManager.js';
-import backgroundLocationService from '../utils/backgroundLocationService.js';
 
 export default function DriverDashboard() {
   const [students, setStudents] = useState([]);
@@ -29,9 +28,6 @@ export default function DriverDashboard() {
   const [locationError, setLocationError] = useState('');
   const [isServiceWorkerActive, setIsServiceWorkerActive] = useState(false);
   const [backgroundTracking, setBackgroundTracking] = useState(false);
-  const [isBackgroundServiceActive, setIsBackgroundServiceActive] = useState(false);
-  const [wakeLockActive, setWakeLockActive] = useState(false);
-  const [isUltraAggressiveTracking, setIsUltraAggressiveTracking] = useState(false);
 
   useEffect(() => {
     const driver = JSON.parse(localStorage.getItem('driverData') || '{}');
@@ -52,580 +48,817 @@ export default function DriverDashboard() {
           initialAttendance[student.rollNo] = false;
         });
         setAttendance(initialAttendance);
+        
+        // Update locally saved counts after students are loaded
+        setTimeout(() => updateLocallySavedCounts(), 100);
       })
-      .catch(err => {
-        console.error('Error loading students:', err);
-      });
-
-    // Initialize Service Worker and background tracking
-    initializeBackgroundTracking();
-
-    // Check wake lock status periodically
-    const wakeLockInterval = setInterval(() => {
-      setWakeLockActive(backgroundLocationService.isWakeLockActive());
-    }, 2000);
-
-    return () => {
-      clearInterval(wakeLockInterval);
-    };
+      .catch(err => console.error('Error loading student data:', err));
   }, []);
 
-  const initializeBackgroundTracking = async () => {
-    try {
-      // Register Service Worker
-      const swRegistration = await swManager.register();
-      setIsServiceWorkerActive(!!swRegistration);
+  // Update locally saved counts periodically
+  useEffect(() => {
+    if (driverData?.busId) {
+      updateLocallySavedCounts();
+      const interval = setInterval(updateLocallySavedCounts, 3000); // Check every 3 seconds
+      return () => clearInterval(interval);
+    }
+  }, [driverData]);
+
+  // GPS Location tracking useEffect
+  useEffect(() => {
+    if (!driverData?.busId) return;
+
+    // Initialize Service Worker for background tracking
+    const initServiceWorker = async () => {
+      const registered = await swManager.register();
+      setIsServiceWorkerActive(registered);
       
-      // Start background location service
-      await backgroundLocationService.startTracking();
-      setIsBackgroundServiceActive(true);
-      setIsUltraAggressiveTracking(true);
+      if (registered) {
+        console.log('🚀 Service Worker ready for background location tracking');
+        
+        // Start background tracking immediately
+        const swData = {
+          driverId: driverData.driverId || driverData.busId,
+          busId: driverData.busId,
+          name: driverData.name,
+          lastKnownLocation: currentLocation
+        };
+        
+        swManager.startBackgroundTracking(swData);
+        setBackgroundTracking(true);
+      }
+    };
+
+    const startLocationTracking = () => {
+      setIsTrackingLocation(true);
+      setLocationError('');
+
+      if (navigator.geolocation) {
+        const trackLocation = () => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const location = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+                timestamp: new Date().toISOString(),
+                busId: driverData.busId,
+                driverName: driverData.name,
+                speed: position.coords.speed || 0,
+                accuracy: position.coords.accuracy
+              };
+
+              console.log('📍 Driver GPS location captured:', location);
+              console.log('🌐 Backend URL:', import.meta.env.VITE_BACKEND_URL);
+              setCurrentLocation(location);
+              
+              // Update Service Worker with latest location
+              if (isServiceWorkerActive) {
+                swManager.updateDriverData({
+                  driverId: driverData.driverId || driverData.busId,
+                  busId: driverData.busId,
+                  name: driverData.name,
+                  lastKnownLocation: location
+                });
+              }
+              
+              // Send location to backend API AND localStorage for cross-device sync
+              LocationService.saveRealLocation(location)
+                .then(result => {
+                  if (result.success) {
+                    console.log('✅ Location posted to backend API successfully');
+                  } else {
+                    console.log('⚠️ Backend API post failed, using localStorage only');
+                  }
+                })
+                .catch(error => {
+                  console.log('⚠️ Location API error:', error.message);
+                });
+              
+              setLocationError('');
+            },
+            (error) => {
+              console.error('Location error:', error);
+              setLocationError(`GPS Error: ${error.message}`);
+              setIsTrackingLocation(false);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 60000
+            }
+          );
+        };
+
+        // Track location immediately
+        trackLocation();
+        
+        // Then track every 10 seconds (frontend tracking)
+        const locationInterval = setInterval(trackLocation, 10000);
+
+        return () => clearInterval(locationInterval);
+      } else {
+        setLocationError('GPS not supported by this device');
+        setIsTrackingLocation(false);
+      }
+    };
+
+    // Initialize Service Worker first, then start location tracking
+    initServiceWorker();
+    startLocationTracking();
+    
+    // Listen for service worker location updates
+    const handleSWLocationUpdate = (event) => {
+      console.log('📡 Received location update from Service Worker:', event.detail);
+    };
+    
+    window.addEventListener('sw-location-update', handleSWLocationUpdate);
+    
+    return () => {
+      window.removeEventListener('sw-location-update', handleSWLocationUpdate);
+    };
+  }, [driverData]);
+
+  // Cleanup Service Worker on unmount
+  useEffect(() => {
+    return () => {
+      if (backgroundTracking) {
+        swManager.stopBackgroundTracking();
+        console.log('🛑 Stopped background tracking on component unmount');
+      }
+    };
+  }, [backgroundTracking]);
+
+  // Background tracking control functions
+  const toggleBackgroundTracking = () => {
+    if (!isServiceWorkerActive) {
+      alert('❌ Service Worker not available. Background tracking requires Service Worker support.');
+      return;
+    }
+
+    if (backgroundTracking) {
+      swManager.stopBackgroundTracking();
+      setBackgroundTracking(false);
+      console.log('⏹️ Manual stop background tracking');
+    } else {
+      const swData = {
+        driverId: driverData.driverId || driverData.busId,
+        busId: driverData.busId,
+        name: driverData.name,
+        lastKnownLocation: currentLocation
+      };
       
-      console.log('🔥 Ultra-aggressive background tracking initialized');
-    } catch (error) {
-      console.error('Failed to initialize background tracking:', error);
-      setLocationError('Failed to initialize background tracking');
+      swManager.startBackgroundTracking(swData);
+      setBackgroundTracking(true);
+      console.log('▶️ Manual start background tracking');
     }
   };
 
   const loadTodayRecords = async (busId) => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Check for existing records
-      const homeToCampusRecord = await AttendanceDB.getAttendanceRecord(busId, today, 'home-to-campus');
-      const campusToHomeRecord = await AttendanceDB.getAttendanceRecord(busId, today, 'campus-to-home');
-      
-      setExistingRecords({
-        'home-to-campus': homeToCampusRecord,
-        'campus-to-home': campusToHomeRecord
+    if (!busId) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const records = await AttendanceDB.getAttendanceByBusAndDate(busId, today);
+    
+    const recordsMap = {
+      'home-to-campus': records.find(r => r.tripType === 'home-to-campus') || null,
+      'campus-to-home': records.find(r => r.tripType === 'campus-to-home') || null
+    };
+    
+    setExistingRecords(recordsMap);
+    
+    // If there's an existing record for current trip type, load its attendance
+    if (recordsMap[tripType]) {
+      const existingAttendance = {};
+      students.forEach(student => {
+        const isPresent = recordsMap[tripType].presentStudents.some(p => p.rollNo === student.rollNo);
+        existingAttendance[student.rollNo] = isPresent;
       });
-
-      // Count locally saved records
-      const localCounts = await AttendanceDB.getLocalRecordCounts(busId, today);
-      setLocallySavedCounts(localCounts);
-    } catch (error) {
-      console.error('Error loading today records:', error);
+      setAttendance(existingAttendance);
     }
   };
 
-  const handleAttendanceChange = (rollNo, isPresent) => {
+  // Function to update locally saved attendance counts
+  const updateLocallySavedCounts = () => {
+    if (!driverData?.busId) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const morningKey = `attendance_${driverData.busId}_home-to-campus_${today}`;
+    const eveningKey = `attendance_${driverData.busId}_campus-to-home_${today}`;
+    
+    const morningData = localStorage.getItem(morningKey);
+    const eveningData = localStorage.getItem(eveningKey);
+    
+    setLocallySavedCounts({
+      'home-to-campus': morningData ? JSON.parse(morningData).presentStudents.length : 0,
+      'campus-to-home': eveningData ? JSON.parse(eveningData).presentStudents.length : 0
+    });
+
+    // Load saved attendance for current trip type if available
+    const currentKey = `attendance_${driverData.busId}_${tripType}_${today}`;
+    const currentData = localStorage.getItem(currentKey);
+    if (currentData && students.length > 0) {
+      const savedAttendance = JSON.parse(currentData);
+      const loadedAttendance = {};
+      
+      students.forEach(student => {
+        const isPresent = savedAttendance.presentStudents.some(p => p.rollNo === student.rollNo);
+        loadedAttendance[student.rollNo] = isPresent;
+      });
+      
+      setAttendance(loadedAttendance);
+      
+      // Show message if this attendance was already submitted
+      if (savedAttendance.status === 'submitted') {
+        setSubmitMessage(`ℹ️ This ${tripType === 'home-to-campus' ? 'morning' : 'evening'} attendance was already submitted on ${new Date(savedAttendance.submissionTime).toLocaleString()}`);
+      }
+    }
+  };
+
+  const handleTripTypeChange = (newTripType) => {
+    setTripType(newTripType);
+    setSubmitMessage(''); // Clear any previous messages
+    
+    // First check for locally saved attendance data
+    const today = new Date().toISOString().split('T')[0];
+    const localKey = `attendance_${driverData.busId}_${newTripType}_${today}`;
+    const localData = localStorage.getItem(localKey);
+    
+    if (localData) {
+      // Load from localStorage (driver's saved/submitted data)
+      const savedAttendance = JSON.parse(localData);
+      const loadedAttendance = {};
+      
+      students.forEach(student => {
+        const isPresent = savedAttendance.presentStudents.some(p => p.rollNo === student.rollNo);
+        loadedAttendance[student.rollNo] = isPresent;
+      });
+      
+      setAttendance(loadedAttendance);
+      
+      // Show status message
+      if (savedAttendance.status === 'submitted') {
+        setSubmitMessage(`ℹ️ This ${newTripType === 'home-to-campus' ? 'morning' : 'evening'} attendance was already submitted on ${new Date(savedAttendance.submissionTime).toLocaleString()}`);
+      } else {
+        setSubmitMessage(`💾 Loaded your saved ${newTripType === 'home-to-campus' ? 'morning' : 'evening'} attendance`);
+      }
+    } else if (existingRecords[newTripType]) {
+      // Load from existing records (admin system data)
+      const existingAttendance = {};
+      students.forEach(student => {
+        const isPresent = existingRecords[newTripType].presentStudents.some(p => p.rollNo === student.rollNo);
+        existingAttendance[student.rollNo] = isPresent;
+      });
+      setAttendance(existingAttendance);
+    } else {
+      // Reset attendance for new trip
+      const resetAttendance = {};
+      students.forEach(student => {
+        resetAttendance[student.rollNo] = false;
+      });
+      setAttendance(resetAttendance);
+    }
+  };
+
+  const toggleAttendance = (rollNo) => {
     setAttendance(prev => ({
       ...prev,
-      [rollNo]: isPresent
+      [rollNo]: !prev[rollNo]
     }));
   };
 
-  const markAllPresent = () => {
-    const allPresentAttendance = {};
-    students.forEach(student => {
-      allPresentAttendance[student.rollNo] = true;
-    });
-    setAttendance(allPresentAttendance);
-  };
+  // Save attendance locally on driver dashboard
+  const saveAttendanceLocally = async () => {
+    setIsSubmitting(true);
+    setSubmitMessage('');
 
-  const markAllAbsent = () => {
-    const allAbsentAttendance = {};
-    students.forEach(student => {
-      allAbsentAttendance[student.rollNo] = false;
-    });
-    setAttendance(allAbsentAttendance);
-  };
-
-  const getPresentStudents = () => {
-    return students.filter(student => attendance[student.rollNo]);
-  };
-
-  const getAbsentStudents = () => {
-    return students.filter(student => !attendance[student.rollNo]);
-  };
-
-  const getCurrentLocation = () => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error('Geolocation is not supported'));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            timestamp: Date.now()
+    try {
+      const presentStudents = Object.entries(attendance)
+        .filter(([_, isPresent]) => isPresent)
+        .map(([rollNo, _]) => {
+          const student = students.find(s => s.rollNo === rollNo);
+          return {
+            rollNo: rollNo,
+            name: student?.name || '',
+            email: student?.email || ''
           };
-          setCurrentLocation(location);
-          resolve(location);
-        },
-        (error) => {
-          setLocationError(`Location error: ${error.message}`);
-          reject(error);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 60000
-        }
-      );
-    });
-  };
+        });
 
-  const startLocationTracking = async () => {
-    try {
-      setIsTrackingLocation(true);
-      setLocationError('');
-      
-      // Get initial location
-      await getCurrentLocation();
-      
-      // Start ultra-aggressive background tracking
-      await backgroundLocationService.startTracking();
-      setBackgroundTracking(true);
-      setIsBackgroundServiceActive(true);
-      setIsUltraAggressiveTracking(true);
-      
-      console.log('🔥 Ultra-aggressive location tracking started');
-    } catch (error) {
-      console.error('Error starting location tracking:', error);
-      setLocationError(error.message);
-      setIsTrackingLocation(false);
-    }
-  };
+      const absentStudents = Object.entries(attendance)
+        .filter(([_, isPresent]) => !isPresent)
+        .map(([rollNo, _]) => {
+          const student = students.find(s => s.rollNo === rollNo);
+          return {
+            rollNo: rollNo,
+            name: student?.name || '',
+            email: student?.email || ''
+          };
+        });
 
-  const stopLocationTracking = async () => {
-    try {
-      setIsTrackingLocation(false);
-      setBackgroundTracking(false);
-      
-      // Stop background service
-      await backgroundLocationService.stopTracking();
-      setIsBackgroundServiceActive(false);
-      setIsUltraAggressiveTracking(false);
-      
-      console.log('Location tracking stopped');
-    } catch (error) {
-      console.error('Error stopping location tracking:', error);
-    }
-  };
-
-  const completeAttendance = async () => {
-    if (isCompletingAttendance) return;
-    
-    setIsCompletingAttendance(true);
-    try {
-      // Get current location
-      let location = currentLocation;
-      if (!location) {
-        try {
-          location = await getCurrentLocation();
-        } catch (error) {
-          console.warn('Could not get current location, using last known location');
-        }
-      }
-
-      const presentStudents = getPresentStudents();
-      const absentStudents = getAbsentStudents();
-      
-      const attendanceRecord = {
-        busId: driverData.busId,
+      const attendanceData = {
+        driverId: driverData.id,
         driverName: driverData.name,
-        date: new Date().toISOString().split('T')[0],
+        busId: driverData.busId,
         tripType: tripType,
-        presentStudents: presentStudents.map(s => ({
-          rollNo: s.rollNo,
-          name: s.name,
-          phone: s.phone,
-          route: s.route
-        })),
-        absentStudents: absentStudents.map(s => ({
-          rollNo: s.rollNo,
-          name: s.name,
-          phone: s.phone,
-          route: s.route
-        })),
-        totalPresent: presentStudents.length,
-        totalAbsent: absentStudents.length,
+        presentStudents: presentStudents,
+        absentStudents: absentStudents,
         totalStudents: students.length,
-        location: location,
-        timestamp: Date.now(),
-        isCompleted: true
+        route: driverData.busId === '66d0123456a1b2c3d4e5f601' ? 'Route A - City Center to College' : 'Route B - Airport to College',
+        notes: `${tripType} attendance saved locally by ${driverData.name}`,
+        status: 'saved' // Not yet submitted to admin
       };
 
-      // Save locally first
-      await AttendanceDB.saveAttendanceRecord(attendanceRecord);
+      // Save locally in driver's session storage for now
+      const localKey = `attendance_${driverData.busId}_${tripType}_${new Date().toISOString().split('T')[0]}`;
+      localStorage.setItem(localKey, JSON.stringify(attendanceData));
       
-      // Try to submit to server
-      try {
-        await AttendanceDB.submitPendingRecords();
-        setSubmitMessage(`✅ Attendance completed and submitted! Present: ${presentStudents.length}, Absent: ${absentStudents.length}`);
-      } catch (submitError) {
-        console.warn('Could not submit to server, saved locally:', submitError);
-        setSubmitMessage(`💾 Attendance saved locally (will sync when online). Present: ${presentStudents.length}, Absent: ${absentStudents.length}`);
-      }
+      setSubmitMessage(`💾 Attendance saved locally! You can submit it when you reach the destination.`);
+      
+      // Update existing records for local display
+      setExistingRecords(prev => ({
+        ...prev,
+        [tripType]: attendanceData
+      }));
+      
+      // Update locally saved counts
+      updateLocallySavedCounts();
 
-      // Reload records to show updated status
-      await loadTodayRecords(driverData.busId);
-      
-      // Reset form
-      const initialAttendance = {};
-      students.forEach(student => {
-        initialAttendance[student.rollNo] = false;
-      });
-      setAttendance(initialAttendance);
-      
     } catch (error) {
-      console.error('Error completing attendance:', error);
-      setSubmitMessage(`❌ Error: ${error.message}`);
-    } finally {
-      setIsCompletingAttendance(false);
-    }
-  };
-
-  const exportToExcel = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const records = await AttendanceDB.getAttendanceRecordsByDate(today);
-      
-      if (records.length === 0) {
-        alert('No attendance records found for today');
-        return;
-      }
-
-      await ExcelExportService.exportAttendanceRecords(records, today);
-      alert('Attendance exported to Excel successfully!');
-    } catch (error) {
-      console.error('Error exporting to Excel:', error);
-      alert('Error exporting to Excel: ' + error.message);
-    }
-  };
-
-  const syncPendingRecords = async () => {
-    if (isSubmitting) return;
-    
-    setIsSubmitting(true);
-    try {
-      const result = await AttendanceDB.submitPendingRecords();
-      if (result.submitted > 0) {
-        setSubmitMessage(`✅ Synced ${result.submitted} records to server`);
-        await loadTodayRecords(driverData.busId);
-      } else {
-        setSubmitMessage('No pending records to sync');
-      }
-    } catch (error) {
-      console.error('Error syncing records:', error);
-      setSubmitMessage(`❌ Sync error: ${error.message}`);
+      setSubmitMessage(`❌ Error saving attendance: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('driverData');
-    stopLocationTracking();
-    navigate('/driver-login');
+  // Submit attendance to admin dashboard (only when at correct location)
+  const submitAttendanceToAdmin = async () => {
+    setIsCompletingAttendance(true);
+    setSubmitMessage('');
+
+    try {
+      // Check if already submitted
+      if (isCurrentAttendanceSubmitted()) {
+        setSubmitMessage(`ℹ️ This ${tripType === 'home-to-campus' ? 'morning' : 'evening'} attendance was already submitted`);
+        setIsCompletingAttendance(false);
+        return;
+      }
+
+      // Get the locally saved attendance
+      const localKey = `attendance_${driverData.busId}_${tripType}_${new Date().toISOString().split('T')[0]}`;
+      const savedAttendance = localStorage.getItem(localKey);
+      
+      if (!savedAttendance) {
+        setSubmitMessage(`❌ Please save attendance first before submitting!`);
+        return;
+      }
+
+      const attendanceData = JSON.parse(savedAttendance);
+      attendanceData.status = 'submitted'; // Mark as submitted
+      attendanceData.submissionTime = new Date().toISOString();
+      attendanceData.notes = `${tripType} attendance submitted by ${driverData.name}`;
+
+      // Now save to the admin database
+      const result = await AttendanceDB.saveAttendance(attendanceData);
+      
+      if (result.success) {
+        setSubmitMessage(`✅ Attendance submitted successfully to admin dashboard!`);
+        
+        // Keep the data in localStorage but mark it as submitted
+        const submittedData = JSON.parse(localStorage.getItem(localKey));
+        submittedData.status = 'submitted';
+        submittedData.submissionTime = new Date().toISOString();
+        localStorage.setItem(localKey, JSON.stringify(submittedData));
+        
+        // Don't clear attendance marks - keep them visible for driver reference
+        // This way driver can see what they submitted even after logout/login
+        
+        // Update locally saved counts (they should remain the same)
+        updateLocallySavedCounts();
+        
+        // Update existing records
+        setExistingRecords(prev => ({
+          ...prev,
+          [tripType]: result.data
+        }));
+      } else {
+        setSubmitMessage(`❌ Error submitting attendance: ${result.error}`);
+      }
+    } catch (error) {
+      setSubmitMessage(`❌ Error submitting attendance: ${error.message}`);
+    } finally {
+      setIsCompletingAttendance(false);
+    }
   };
 
-  if (!driverData || !driverData.name) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">Loading driver data...</p>
-          <button 
-            onClick={() => navigate('/driver-login')}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-          >
-            Back to Login
-          </button>
-        </div>
-      </div>
-    );
+  // Check if current trip attendance has already been submitted
+  const isCurrentAttendanceSubmitted = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const localKey = `attendance_${driverData?.busId}_${tripType}_${today}`;
+    const localData = localStorage.getItem(localKey);
+    
+    if (localData) {
+      const savedAttendance = JSON.parse(localData);
+      return savedAttendance.status === 'submitted';
+    }
+    return false;
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('userType');
+    localStorage.removeItem('driverData');
+    navigate('/');
+  };
+
+  const getPresentStudents = () => {
+    return Object.entries(attendance)
+      .filter(([_, isPresent]) => isPresent)
+      .map(([rollNo, _]) => {
+        const student = students.find(s => s.rollNo === rollNo);
+        return {
+          rollNo: rollNo,
+          name: student?.name || '',
+          email: student?.email || ''
+        };
+      });
+  };
+
+  const getAbsentStudents = () => {
+    return Object.entries(attendance)
+      .filter(([_, isPresent]) => !isPresent)
+      .map(([rollNo, _]) => {
+        const student = students.find(s => s.rollNo === rollNo);
+        return {
+          rollNo: rollNo,
+          name: student?.name || '',
+          email: student?.email || ''
+        };
+      });
+  };
+
+  if (!driverData) {
+    return <div>Loading...</div>;
   }
 
-  const presentCount = Object.values(attendance).filter(Boolean).length;
-  const absentCount = students.length - presentCount;
-
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex justify-between items-start mb-4">
+    <div className="min-h-screen relative">
+      {/* Background */}
+      <div 
+        className="fixed inset-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: 'url("https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80")'
+        }}
+      ></div>
+      <div className="fixed inset-0 bg-gradient-to-br from-green-900/80 via-emerald-800/70 to-green-700/80"></div>
+      
+      {/* Header */}
+      <div className="relative bg-white/95 backdrop-blur-lg shadow-2xl border-b-4 border-gradient-to-r from-green-500 to-emerald-500">
+        <div className="px-6 py-6">
+          <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">Driver Dashboard</h1>
-              <p className="text-gray-600">Welcome, {driverData.name}</p>
-              <p className="text-sm text-gray-500">Bus ID: {driverData.busId}</p>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent flex items-center">
+                🚗 <span className="ml-3">Driver Dashboard</span>
+              </h1>
+              <p className="text-gray-600 mt-2 text-lg">Welcome, {driverData.name}</p>
             </div>
             <button
               onClick={handleLogout}
-              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+              className="bg-gradient-to-r from-red-500 to-red-600 text-white px-8 py-4 rounded-2xl hover:from-red-600 hover:to-red-700 transform hover:scale-110 transition-all duration-300 shadow-xl flex items-center space-x-2 btn-hover"
             >
-              Logout
+              <span>🚪</span>
+              <span className="font-semibold">Logout</span>
             </button>
           </div>
+        </div>
+      </div>
 
-          {/* Ultra-Aggressive Background Tracking Status */}
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold text-red-800">
-                🔥 {isUltraAggressiveTracking 
-                      ? 'ULTRA-AGGRESSIVE Background Tracking (Screen Off/App Switch)' 
-                      : 'Ultra-aggressive tracking disabled'}
-              </span>
-            </div>
-            {isUltraAggressiveTracking && (
-              <p className="text-xs text-red-600 mt-1">
-                Location tracking continues even when screen is off or using other apps
+      <div className="relative p-6">
+        {/* Trip Type Selection */}
+        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-6 mb-8 border border-white/20 card-hover">
+          <h2 className="text-xl font-bold mb-4 gradient-text-green flex items-center">
+            🚌 <span className="ml-3">Select Trip Type</span>
+          </h2>
+          
+          <div className="flex space-x-4">
+            <button
+              onClick={() => handleTripTypeChange('home-to-campus')}
+              className={`flex-1 py-4 px-6 rounded-xl font-bold transition-all duration-300 ${
+                tripType === 'home-to-campus'
+                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-xl transform scale-105'
+                  : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-600'
+              }`}
+            >
+              🏠➡️🏫 Home to Campus
+              {locallySavedCounts['home-to-campus'] > 0 && (
+                <div className="text-xs mt-1 opacity-80">
+                  💾 {locallySavedCounts['home-to-campus']} students saved locally
+                </div>
+              )}
+            </button>
+            
+            <button
+              onClick={() => handleTripTypeChange('campus-to-home')}
+              className={`flex-1 py-4 px-6 rounded-xl font-bold transition-all duration-300 ${
+                tripType === 'campus-to-home'
+                  ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-xl transform scale-105'
+                  : 'bg-gray-100 text-gray-600 hover:bg-orange-50 hover:text-orange-600'
+              }`}
+            >
+              🏫➡️🏠 Campus to Home
+              {locallySavedCounts['campus-to-home'] > 0 && (
+                <div className="text-xs mt-1 opacity-80">
+                  💾 {locallySavedCounts['campus-to-home']} students saved locally
+                </div>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* GPS Location Tracking Card */}
+        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-6 mb-8 border border-white/20 card-hover">
+          <h2 className="text-xl font-bold mb-4 gradient-text-green flex items-center">
+            📍 <span className="ml-3">GPS Location Tracking</span>
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Tracking Status */}
+            <div className={`p-4 rounded-xl border-2 ${
+              isTrackingLocation 
+                ? 'bg-green-50 border-green-300' 
+                : 'bg-red-50 border-red-300'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-bold text-gray-800">📡 Tracking Status</h3>
+                <div className={`w-3 h-3 rounded-full ${
+                  isTrackingLocation ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                }`}></div>
+              </div>
+              <p className={`text-sm ${
+                isTrackingLocation ? 'text-green-700' : 'text-red-700'
+              }`}>
+                {isTrackingLocation ? '✅ GPS tracking active' : '❌ GPS not tracking'}
               </p>
+              
+              {/* Background Tracking Status */}
+              <div className="mt-2 p-2 rounded-lg bg-gradient-to-r from-purple-100 to-blue-100 border border-purple-200">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    backgroundTracking && isServiceWorkerActive ? 'bg-purple-500 animate-pulse' : 'bg-gray-400'
+                  }`}></div>
+                  <span className={`text-xs font-medium ${
+                    backgroundTracking && isServiceWorkerActive ? 'text-purple-700' : 'text-gray-600'
+                  }`}>
+                    {backgroundTracking && isServiceWorkerActive 
+                      ? '🚀 Background tracking active (works when screen is off)' 
+                      : '⏸️ Background tracking disabled'}
+                  </span>
+                </div>
+                {isServiceWorkerActive && (
+                  <p className="text-xs text-purple-600 mt-1">
+                    📱 Location updates every 5 seconds even when app is minimized
+                  </p>
+                )}
+                
+                {/* Background Tracking Toggle */}
+                {isServiceWorkerActive && (
+                  <button
+                    onClick={toggleBackgroundTracking}
+                    className={`mt-2 w-full px-3 py-1 rounded-lg text-xs font-medium transition-all duration-200 ${
+                      backgroundTracking 
+                        ? 'bg-red-500 hover:bg-red-600 text-white' 
+                        : 'bg-purple-500 hover:bg-purple-600 text-white'
+                    }`}
+                  >
+                    {backgroundTracking ? '⏹️ Stop Background Tracking' : '▶️ Start Background Tracking'}
+                  </button>
+                )}
+              </div>
+              
+              {locationError && (
+                <p className="text-xs text-red-600 mt-1">{locationError}</p>
+              )}
+            </div>
+
+            {/* Current Location */}
+            <div className="p-4 rounded-xl border-2 bg-blue-50 border-blue-300">
+              <h3 className="text-lg font-bold text-gray-800 mb-2">🌐 Current Location</h3>
+              {currentLocation ? (
+                <div className="text-sm text-blue-700 space-y-1">
+                  <p><strong>Lat:</strong> {currentLocation.lat.toFixed(6)}</p>
+                  <p><strong>Lng:</strong> {currentLocation.lng.toFixed(6)}</p>
+                  <p><strong>Speed:</strong> {currentLocation.speed ? `${Math.round(currentLocation.speed * 3.6)} km/h` : 'N/A'}</p>
+                  <p><strong>Updated:</strong> {new Date(currentLocation.timestamp).toLocaleTimeString()}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-600">Waiting for GPS signal...</p>
+              )}
+            </div>
+          </div>
+
+          {/* Location Info */}
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <span className="font-semibold">📢 Info:</span> Your location is being shared with admin and students in real-time for bus tracking.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-8 mb-8 border border-white/20 card-hover">
+          <h2 className="text-2xl font-bold mb-6 gradient-text-green flex items-center">
+            📋 <span className="ml-3">Take Attendance - {tripType === 'home-to-campus' ? 'Home to Campus' : 'Campus to Home'}</span>
+          </h2>
+          <p className="text-gray-600 mb-6 text-lg">
+            Mark students as present for {tripType === 'home-to-campus' ? 'morning' : 'evening'} journey
+          </p>
+
+          {/* Attendance Summary */}
+          <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-100 rounded-xl border border-blue-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-blue-800">Attendance Summary</h3>
+              <button
+                onClick={() => setShowPresentList(!showPresentList)}
+                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center space-x-2"
+              >
+                <span>👥</span>
+                <span>{showPresentList ? 'Hide' : 'View'} Present Students</span>
+                <svg className={`w-4 h-4 transform transition-transform ${showPresentList ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+              <div className="bg-white p-3 rounded-lg border border-green-200">
+                <div className="text-2xl font-bold text-green-600">{getPresentStudents().length}</div>
+                <div className="text-sm text-green-500">Present</div>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-red-200">
+                <div className="text-2xl font-bold text-red-600">{getAbsentStudents().length}</div>
+                <div className="text-sm text-red-500">Absent</div>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-blue-200">
+                <div className="text-2xl font-bold text-blue-600">
+                  {getPresentStudents().length > 0 ? Math.round((getPresentStudents().length / students.length) * 100) : 0}%
+                </div>
+                <div className="text-sm text-blue-500">Attendance Rate</div>
+              </div>
+            </div>
+
+            {/* Present Students List */}
+            {showPresentList && getPresentStudents().length > 0 && (
+              <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                <h4 className="font-bold text-green-800 mb-3">Present Students ({getPresentStudents().length})</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {getPresentStudents().map((student, index) => (
+                    <div key={index} className="bg-white p-2 rounded border border-green-200 text-sm">
+                      <span className="font-medium text-green-700">{student.name}</span>
+                      <span className="text-green-600 ml-2">({student.rollNo})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Background Tracking Controls */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <h3 className="font-semibold text-blue-800 mb-2">Background Services</h3>
-              <div className="space-y-1 text-sm">
-                <p className="flex justify-between">
-                  <span>Service Worker:</span>
-                  <span className={isServiceWorkerActive ? 'text-green-600' : 'text-red-600'}>
-                    {isServiceWorkerActive ? '✅ Active' : '❌ Inactive'}
-                  </span>
-                </p>
-                <p className="flex justify-between">
-                  <span>Background Service:</span>
-                  <span className={isBackgroundServiceActive ? 'text-green-600' : 'text-red-600'}>
-                    {isBackgroundServiceActive ? '✅ Running' : '❌ Stopped'}
-                  </span>
-                </p>
-                <p className="flex justify-between">
-                  <span>Wake Lock:</span>
-                  <span className={wakeLockActive ? 'text-green-600' : 'text-orange-600'}>
-                    {wakeLockActive ? '🔒 Active' : '🔓 Released'}
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <h3 className="font-semibold text-green-800 mb-2">Location Tracking</h3>
-              <div className="space-y-2">
-                {!isTrackingLocation ? (
-                  <button
-                    onClick={startLocationTracking}
-                    className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                  >
-                    🚀 Start Ultra-Aggressive Tracking
-                  </button>
-                ) : (
-                  <button
-                    onClick={stopLocationTracking}
-                    className="w-full bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-                  >
-                    ⏹️ Stop Tracking
-                  </button>
-                )}
-                {currentLocation && (
-                  <p className="text-xs text-green-600">
-                    📍 Last: {new Date(currentLocation.timestamp).toLocaleTimeString()}
-                  </p>
-                )}
-                {locationError && (
-                  <p className="text-xs text-red-600">⚠️ {locationError}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Trip Type Selection */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Trip Type:
-            </label>
-            <select
-              value={tripType}
-              onChange={(e) => setTripType(e.target.value)}
-              className="border border-gray-300 rounded px-3 py-2 w-full"
-            >
-              <option value="home-to-campus">Home to Campus</option>
-              <option value="campus-to-home">Campus to Home</option>
-            </select>
-          </div>
-
-          {/* Today's Records Status */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="bg-blue-50 border border-blue-200 rounded p-3">
-              <h3 className="font-semibold text-blue-800">Today's Records</h3>
-              <div className="text-sm mt-2">
-                <p className="flex justify-between">
-                  <span>Home to Campus:</span>
-                  <span className={existingRecords['home-to-campus'] ? 'text-green-600' : 'text-gray-500'}>
-                    {existingRecords['home-to-campus'] ? '✅ Completed' : '⏳ Pending'}
-                  </span>
-                </p>
-                <p className="flex justify-between">
-                  <span>Campus to Home:</span>
-                  <span className={existingRecords['campus-to-home'] ? 'text-green-600' : 'text-gray-500'}>
-                    {existingRecords['campus-to-home'] ? '✅ Completed' : '⏳ Pending'}
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
-              <h3 className="font-semibold text-yellow-800">Local Records</h3>
-              <div className="text-sm mt-2">
-                <p>Home to Campus: {locallySavedCounts['home-to-campus']} saved</p>
-                <p>Campus to Home: {locallySavedCounts['campus-to-home']} saved</p>
-                <button
-                  onClick={syncPendingRecords}
-                  disabled={isSubmitting}
-                  className="mt-2 bg-yellow-600 text-white px-3 py-1 rounded text-xs hover:bg-yellow-700 disabled:opacity-50"
-                >
-                  {isSubmitting ? '⏳ Syncing...' : '🔄 Sync to Server'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {submitMessage && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
-              <p className="text-sm text-blue-800">{submitMessage}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Attendance Section */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-gray-800">
-              Student Attendance ({tripType})
-            </h2>
-            <div className="flex gap-2">
-              <button
-                onClick={markAllPresent}
-                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-              >
-                Mark All Present
-              </button>
-              <button
-                onClick={markAllAbsent}
-                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-              >
-                Mark All Absent
-              </button>
-            </div>
-          </div>
-
-          {/* Summary */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-blue-50 p-4 rounded-lg text-center">
-              <p className="text-2xl font-bold text-blue-600">{students.length}</p>
-              <p className="text-sm text-gray-600">Total Students</p>
-            </div>
-            <div className="bg-green-50 p-4 rounded-lg text-center">
-              <p className="text-2xl font-bold text-green-600">{presentCount}</p>
-              <p className="text-sm text-gray-600">Present</p>
-            </div>
-            <div className="bg-red-50 p-4 rounded-lg text-center">
-              <p className="text-2xl font-bold text-red-600">{absentCount}</p>
-              <p className="text-sm text-gray-600">Absent</p>
-            </div>
-          </div>
-
           {/* Student List */}
-          <div className="space-y-2 mb-6">
+          <div className="space-y-4">
             {students.map((student) => (
-              <div
-                key={student.rollNo}
-                className={`flex items-center justify-between p-3 border rounded-lg ${
-                  attendance[student.rollNo] 
-                    ? 'bg-green-50 border-green-200' 
-                    : 'bg-gray-50 border-gray-200'
-                }`}
-              >
-                <div>
-                  <p className="font-medium">{student.name}</p>
-                  <p className="text-sm text-gray-600">
-                    Roll: {student.rollNo} | Route: {student.route} | Phone: {student.phone}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleAttendanceChange(student.rollNo, true)}
-                    className={`px-4 py-2 rounded ${
-                      attendance[student.rollNo]
-                        ? 'bg-green-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-green-100'
-                    }`}
-                  >
-                    Present
-                  </button>
-                  <button
-                    onClick={() => handleAttendanceChange(student.rollNo, false)}
-                    className={`px-4 py-2 rounded ${
-                      !attendance[student.rollNo]
-                        ? 'bg-red-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-red-100'
-                    }`}
-                  >
-                    Absent
-                  </button>
+              <div key={student.rollNo} className={`p-6 rounded-2xl border-2 transition-all duration-300 ${
+                attendance[student.rollNo] 
+                  ? 'bg-green-50 border-green-300 shadow-lg transform scale-105' 
+                  : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-lg">{student.name}</p>
+                    <p className="text-sm text-gray-600">{student.rollNo}</p>
+                  </div>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={attendance[student.rollNo] || false}
+                      onChange={() => toggleAttendance(student.rollNo)}
+                      className="mr-3 w-6 h-6 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500"
+                    />
+                    <span className={`font-semibold text-lg ${attendance[student.rollNo] ? 'text-green-600' : 'text-gray-400'}`}>
+                      {attendance[student.rollNo] ? '✅ Present' : '❌ Absent'}
+                    </span>
+                  </label>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-4">
+          {submitMessage && (
+            <div className={`mt-6 p-4 rounded-xl ${
+              submitMessage.includes('✅') 
+                ? 'bg-green-50 border border-green-200 text-green-800' 
+                : 'bg-red-50 border border-red-200 text-red-800'
+            }`}>
+              {submitMessage}
+            </div>
+          )}
+
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Save Attendance Button */}
             <button
-              onClick={completeAttendance}
-              disabled={isCompletingAttendance || students.length === 0}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+              onClick={saveAttendanceLocally}
+              disabled={isSubmitting}
+              className={`py-4 rounded-2xl font-bold text-white text-lg transition-all duration-300 transform hover:scale-105 ${
+                isSubmitting 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-xl'
+              }`}
             >
-              {isCompletingAttendance ? (
-                <>⏳ Completing Attendance...</>
+              {isSubmitting ? (
+                <div className="flex items-center justify-center">
+                  <div className="spinner mr-3"></div>
+                  Saving...
+                </div>
               ) : (
-                <>✅ Complete Attendance ({tripType})</>
+                `💾 Save ${tripType === 'home-to-campus' ? 'Morning' : 'Evening'} Attendance`
               )}
             </button>
-            <button
-              onClick={() => setShowPresentList(!showPresentList)}
-              className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700"
-            >
-              {showPresentList ? 'Hide' : 'Show'} Present List
-            </button>
-            <button
-              onClick={exportToExcel}
-              className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700"
-            >
-              📊 Export Excel
-            </button>
-          </div>
-        </div>
 
-        {/* Present Students List */}
-        {showPresentList && (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">
-              Present Students ({presentCount})
-            </h3>
-            {getPresentStudents().length > 0 ? (
-              <div className="space-y-2">
-                {getPresentStudents().map((student) => (
-                  <div key={student.rollNo} className="flex justify-between items-center p-2 bg-green-50 border border-green-200 rounded">
-                    <div>
-                      <p className="font-medium">{student.name}</p>
-                      <p className="text-sm text-gray-600">Roll: {student.rollNo} | Route: {student.route}</p>
-                    </div>
-                    <span className="text-green-600 font-medium">✅ Present</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-8">No students marked as present</p>
-            )}
+            {/* Submit to Admin Button */}
+            <button
+              onClick={submitAttendanceToAdmin}
+              disabled={isCompletingAttendance || getPresentStudents().length === 0 || isCurrentAttendanceSubmitted()}
+              className={`py-4 rounded-2xl font-bold text-white text-lg transition-all duration-300 transform hover:scale-105 ${
+                isCompletingAttendance || getPresentStudents().length === 0 || isCurrentAttendanceSubmitted()
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-xl'
+              }`}
+            >
+              {isCompletingAttendance ? (
+                <div className="flex items-center justify-center">
+                  <div className="spinner mr-3"></div>
+                  Submitting...
+                </div>
+              ) : isCurrentAttendanceSubmitted() ? (
+                `✅ Already Submitted to Admin`
+              ) : (
+                `📤 Submit to Admin Dashboard`
+              )}
+            </button>
           </div>
-        )}
+
+          {/* Completion Status */}
+          {getPresentStudents().length === 0 && !isCurrentAttendanceSubmitted() && (
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg">
+              ⚠️ Please mark at least one student as present before submitting
+            </div>
+          )}
+          
+          {isCurrentAttendanceSubmitted() && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 text-green-800 rounded-lg">
+              ✅ This {tripType === 'home-to-campus' ? 'morning' : 'evening'} attendance has been successfully submitted to admin
+            </div>
+          )}
+        </div>
       </div>
+
+      <style>
+        {`
+        .gradient-text-green {
+          background: linear-gradient(135deg, #10b981, #059669);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        
+        .card-hover {
+          transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+          transform: translateY(-5px);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        
+        .btn-hover {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-hover:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        
+        .spinner {
+          width: 16px;
+          height: 16px;
+          border: 2px solid transparent;
+          border-top: 2px solid currentColor;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        `}
+      </style>
     </div>
   );
 }

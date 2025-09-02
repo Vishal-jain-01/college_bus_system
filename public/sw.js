@@ -5,6 +5,15 @@ const API_BASE_URL = 'https://bus-tracking-system-backend.onrender.com';
 // Install event - cache essential resources
 self.addEventListener('install', (event) => {
   console.log('🔧 Service Worker: Installing...');
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll([
+        '/',
+        '/index.html',
+        '/src/main.jsx'
+      ]);
+    })
+  );
   self.skipWaiting();
 });
 
@@ -18,7 +27,6 @@ self.addEventListener('activate', (event) => {
 let locationInterval = null;
 let isTrackingActive = false;
 let driverData = null;
-let lastKnownLocation = null;
 
 // Listen for messages from main thread
 self.addEventListener('message', (event) => {
@@ -35,55 +43,31 @@ self.addEventListener('message', (event) => {
       break;
     case 'UPDATE_DRIVER_DATA':
       driverData = data;
-      if (data.lastKnownLocation) {
-        lastKnownLocation = data.lastKnownLocation;
-      }
-      break;
-    case 'MANUAL_LOCATION_UPDATE':
-      // Receive location from main thread and send to backend
-      if (data.location) {
-        lastKnownLocation = data.location;
-        sendLocationToBackend(data.location);
-      }
       break;
   }
 });
 
-// Start background location tracking (using location from main thread)
+// Start background location tracking
 function startBackgroundLocationTracking(data) {
   console.log('🎯 Service Worker: Starting background location tracking');
   
   driverData = data;
   isTrackingActive = true;
   
-  if (data.lastKnownLocation) {
-    lastKnownLocation = data.lastKnownLocation;
-  }
-  
   // Clear any existing interval
   if (locationInterval) {
     clearInterval(locationInterval);
   }
   
-  // Send location updates every 8 seconds using last known location
+  // Start aggressive location tracking every 5 seconds
   locationInterval = setInterval(() => {
-    if (isTrackingActive && lastKnownLocation && driverData) {
-      // Create updated location with current timestamp
-      const updatedLocation = {
-        ...lastKnownLocation,
-        timestamp: new Date().toISOString(),
-        source: 'service-worker-background',
-        driverId: driverData?.driverId,
-        busId: driverData?.busId,
-        isRealLocation: false // Mark as background update
-      };
-      
-      console.log('📍 Service Worker: Sending background location update');
-      sendLocationToBackend(updatedLocation);
+    if (isTrackingActive && driverData) {
+      getCurrentLocationAndSend();
     }
-  }, 8000);
+  }, 5000);
   
-  console.log('✅ Service Worker: Background tracking started with 8-second intervals');
+  // Send immediate location
+  getCurrentLocationAndSend();
 }
 
 // Stop background location tracking
@@ -95,6 +79,59 @@ function stopBackgroundLocationTracking() {
     clearInterval(locationInterval);
     locationInterval = null;
   }
+}
+
+// Get current location and send to backend
+function getCurrentLocationAndSend() {
+  if (!navigator.geolocation) {
+    console.error('❌ Geolocation not supported');
+    return;
+  }
+  
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const locationData = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        timestamp: new Date().toISOString(),
+        source: 'service-worker-background',
+        driverId: driverData?.driverId,
+        busId: driverData?.busId,
+        isRealLocation: true
+      };
+      
+      console.log('📍 Service Worker: Got location:', locationData);
+      
+      // Send to backend API
+      sendLocationToBackend(locationData);
+      
+      // Notify main thread if it's listening
+      notifyMainThread('LOCATION_UPDATE', locationData);
+    },
+    (error) => {
+      console.error('❌ Service Worker: Location error:', error);
+      
+      // Try to send last known location or fallback
+      if (driverData?.lastKnownLocation) {
+        const fallbackData = {
+          ...driverData.lastKnownLocation,
+          timestamp: new Date().toISOString(),
+          source: 'service-worker-fallback',
+          driverId: driverData?.driverId,
+          busId: driverData?.busId,
+          isRealLocation: false
+        };
+        
+        sendLocationToBackend(fallbackData);
+      }
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000
+    }
+  );
 }
 
 // Send location data to backend
@@ -111,47 +148,31 @@ async function sendLocationToBackend(locationData) {
     if (response.ok) {
       const result = await response.json();
       console.log('✅ Service Worker: Location sent to backend:', result);
-      
-      // Notify main thread of successful update
-      notifyMainThread('BACKGROUND_UPDATE_SUCCESS', {
-        timestamp: locationData.timestamp,
-        source: 'service-worker'
-      });
     } else {
       console.error('❌ Service Worker: Backend error:', response.status);
-      storeLocationForRetry(locationData);
     }
   } catch (error) {
     console.error('❌ Service Worker: Network error:', error);
+    
+    // Store in IndexedDB for later retry
     storeLocationForRetry(locationData);
   }
 }
 
 // Store location data for retry when network is available
 function storeLocationForRetry(locationData) {
+  // Simple localStorage fallback (IndexedDB would be better for production)
   try {
-    // Use IndexedDB for better storage in Service Worker
-    const request = indexedDB.open('BusTrackerDB', 1);
+    const pendingLocations = JSON.parse(localStorage.getItem('pendingLocations') || '[]');
+    pendingLocations.push(locationData);
     
-    request.onsuccess = (event) => {
-      const db = event.target.result;
-      const transaction = db.transaction(['pendingLocations'], 'readwrite');
-      const store = transaction.objectStore('pendingLocations');
-      
-      store.add({
-        ...locationData,
-        retryTimestamp: Date.now()
-      });
-      
-      console.log('💾 Service Worker: Stored location for retry');
-    };
+    // Keep only last 50 locations
+    if (pendingLocations.length > 50) {
+      pendingLocations.splice(0, pendingLocations.length - 50);
+    }
     
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains('pendingLocations')) {
-        db.createObjectStore('pendingLocations', { keyPath: 'retryTimestamp' });
-      }
-    };
+    localStorage.setItem('pendingLocations', JSON.stringify(pendingLocations));
+    console.log('💾 Service Worker: Stored location for retry');
   } catch (e) {
     console.error('❌ Service Worker: Storage error:', e);
   }
@@ -176,38 +197,24 @@ self.addEventListener('sync', (event) => {
 // Retry pending location updates
 async function retryPendingLocations() {
   try {
-    const request = indexedDB.open('BusTrackerDB', 1);
+    const pendingLocations = JSON.parse(localStorage.getItem('pendingLocations') || '[]');
     
-    request.onsuccess = async (event) => {
-      const db = event.target.result;
-      const transaction = db.transaction(['pendingLocations'], 'readwrite');
-      const store = transaction.objectStore('pendingLocations');
-      const getAll = store.getAll();
-      
-      getAll.onsuccess = async () => {
-        const pendingLocations = getAll.result;
-        
-        for (const location of pendingLocations) {
-          await sendLocationToBackend(location);
-          // Remove from storage after successful retry
-          store.delete(location.retryTimestamp);
-        }
-        
-        console.log('✅ Service Worker: Retried pending locations');
-      };
-    };
+    for (const location of pendingLocations) {
+      await sendLocationToBackend(location);
+    }
+    
+    // Clear pending locations after successful retry
+    localStorage.removeItem('pendingLocations');
+    console.log('✅ Service Worker: Retried pending locations');
   } catch (error) {
     console.error('❌ Service Worker: Retry failed:', error);
   }
 }
 
-// Handle fetch events - avoid interfering with navigation
+// Handle fetch events for caching (optional)
 self.addEventListener('fetch', (event) => {
-  // Only handle API requests, let navigation requests pass through normally
-  if (event.request.url.includes('/api/') || event.request.url.includes('backend')) {
-    event.respondWith(fetch(event.request));
-  }
-  // Let all other requests (including navigation) pass through unchanged
+  // You can add caching logic here if needed
+  event.respondWith(fetch(event.request));
 });
 
 console.log('🚀 Service Worker: Loaded and ready for background location tracking');
