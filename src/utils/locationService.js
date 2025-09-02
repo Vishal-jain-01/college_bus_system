@@ -605,34 +605,67 @@ export class LocationService {
           console.log('📡 Backend response data:', data);
           
           if (data.success && data.location) {
-            console.log('✅ Got LATEST location from backend:', data.location);
+            // Validate that this is real GPS data, not campus default
+            const location = data.location;
             
-            // Update localStorage with latest data
-            localStorage.setItem(`latest_location_${busId}`, JSON.stringify(data.location));
-            
-            return data.location;
+            // Check if this looks like real driver data (has proper source and recent timestamp)
+            if (location.source && 
+                location.source !== 'campus_default' && 
+                location.source !== 'fallback' &&
+                location.timestamp) {
+              
+              const locationAge = Date.now() - new Date(location.timestamp).getTime();
+              const isRecent = locationAge < 10 * 60 * 1000; // 10 minutes
+              
+              if (isRecent) {
+                console.log('✅ Got FRESH location from backend API:', location);
+                
+                // Update localStorage with latest data
+                localStorage.setItem(`latest_location_${busId}`, JSON.stringify(location));
+                
+                return location;
+              } else {
+                console.log('⏰ Location too old, ignoring stale data:', Math.round(locationAge / 60000) + ' minutes old');
+              }
+            } else {
+              console.log('⚠️ Rejecting non-driver location data:', {
+                source: location.source,
+                hasTimestamp: !!location.timestamp
+              });
+            }
           } else {
             console.log('⚠️ Backend returned no location data:', data.message);
           }
         } else {
           const errorText = await response.text();
-          console.log('⚠️ Backend request failed:', response.status, errorText);
+          console.log('⚠️ Backend API request failed with status:', response.status);
         }
       } catch (backendError) {
-        console.log('⚠️ Backend error:', backendError.message);
+        console.log('⚠️ Backend API request failed with status:', backendError.message);
       }
 
-      // Fallback to localStorage only if backend fails
+      // Check localStorage for recent real driver data as fallback
       const latest = localStorage.getItem(`latest_location_${busId}`);
       if (latest) {
-        console.log('📦 Using localStorage fallback');
-        return JSON.parse(latest);
+        const storedLocation = JSON.parse(latest);
+        const locationAge = Date.now() - new Date(storedLocation.timestamp).getTime();
+        
+        // Only use localStorage if it's recent (within 5 minutes) and from real driver
+        if (locationAge < 5 * 60 * 1000 && 
+            storedLocation.source && 
+            storedLocation.source !== 'campus_default') {
+          console.log('⚠️ No fresh driver location, checking for last known location...');
+          return storedLocation;
+        } else {
+          console.log('🗑️ Clearing old localStorage data');
+          localStorage.removeItem(`latest_location_${busId}`);
+        }
       }
       
-      console.log('❌ No location data available');
+      console.log('🏫 No driver location history, showing campus default');
       return null;
     } catch (error) {
-      console.error('Error getting real location:', error);
+      console.error('❌ No location data found (backend or localStorage)');
       return null;
     }
   }
