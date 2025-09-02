@@ -54,10 +54,10 @@ export class LocationService {
   };
 
   static getCurrentLocation(busId) {
-    // First try to get real GPS location from driver
+    // Only return real GPS location from driver
     const realLocation = this.getRealLocation(busId);
     if (realLocation) {
-      console.log('📍 Using real driver GPS location for admin/student:', realLocation);
+      console.log('📍 Using real driver GPS location:', realLocation);
       return {
         lat: realLocation.lat,
         lng: realLocation.lng,
@@ -78,12 +78,12 @@ export class LocationService {
       };
     }
 
-    // Fallback - no simulation, return null if no real GPS data
+    // No real GPS data - return null instead of fallback
     console.log('❌ No real GPS data available for bus:', busId);
     return null;
   }
 
-  // Student-specific method - only returns driver location or campus default
+  // Student-specific method - only returns driver location or "waiting" status
   static async getStudentViewLocation(busId) {
     // Try to get driver's real location first
     const driverLocation = await this.getRealLocation(busId);
@@ -109,36 +109,8 @@ export class LocationService {
       };
     }
 
-    // No driver location - return campus default
-    const route = this.busRoutes[busId];
-    const busInfo = this.busInfo[busId];
-    
-    if (route && route.length > 0) {
-      const campusLocation = route[0]; // First stop is campus
-      console.log('🏫 No driver GPS, showing campus default for student');
-      
-      return {
-        lat: campusLocation.lat,
-        lng: campusLocation.lng,
-        currentStop: 'Arrived at MIET Campus',
-        nextStop: 'Waiting for driver to start sharing location',
-        routeProgress: 0,
-        progressStatus: 'waiting',
-        speed: 0,
-        timestamp: Date.now(),
-        name: 'MIET Campus',
-        lastUpdated: new Date().toISOString(),
-        isRealLocation: false,
-        locationSource: 'Campus Default',
-        distanceToCurrentStop: 0,
-        distanceToNextStop: null,
-        driverName: busInfo?.driver || 'Unknown Driver',
-        busNumber: busInfo?.busNumber || 'Unknown Bus'
-      };
-    }
-
-    // No route data available
-    console.log('❌ No route data available for bus:', busId);
+    // No driver location - return null instead of fixed campus location
+    console.log('❌ No driver GPS available - returning null for student view');
     return null;
   }
 
@@ -295,15 +267,23 @@ export class LocationService {
         routeProgress: routeProgress.percentage,
         progressStatus: routeProgress.status,
         distanceToCurrentStop: routeProgress.distanceToCurrentStop,
-        distanceToNextStop: routeProgress.distanceToNextStop
+        distanceToNextStop: routeProgress.distanceToNextStop,
+        timestamp: locationData.timestamp || new Date().toISOString(),
+        savedAt: new Date().toISOString()
       };
+
+      console.log('📊 Calculated route progress:', {
+        percentage: routeProgress.percentage,
+        status: routeProgress.status,
+        currentStop: enhancedLocationData.currentStop,
+        nextStop: enhancedLocationData.nextStop
+      });
 
       // Save to backend API (optional - fallback to localStorage if backend not available)
       let backendSuccess = false;
       try {
         const backendUrl = this.getBackendUrl();
         console.log('🚀 Posting location to backend:', backendUrl);
-        console.log('📦 Location data being sent:', enhancedLocationData);
         
         const response = await fetch(`${backendUrl}/api/location/update-location/${locationData.busId}`, {
           method: 'POST',
@@ -330,20 +310,16 @@ export class LocationService {
         }
       } catch (backendError) {
         console.log('⚠️ Backend save error, using localStorage only:', backendError.message);
-        console.error('Full error:', backendError);
       }
 
       // Also save to localStorage as fallback
       const key = `real_location_${locationData.busId}`;
       const existingData = JSON.parse(localStorage.getItem(key) || '[]');
       
-      existingData.unshift({
-        ...enhancedLocationData,
-        savedAt: new Date().toISOString()
-      });
+      existingData.unshift(enhancedLocationData);
 
-      if (existingData.length > 100) {
-        existingData.splice(100);
+      if (existingData.length > 50) {
+        existingData.splice(50);
       }
 
       localStorage.setItem(key, JSON.stringify(existingData));
@@ -477,55 +453,75 @@ export class LocationService {
 
     // Distance thresholds (in km)
     const AT_STOP_THRESHOLD = 0.3;     // 300m - At the stop
-    const NEAR_STOP_THRESHOLD = 1.0;   // 1km - Near the stop
-    const LEFT_STOP_THRESHOLD = 1.5;   // 1.5km - Left the stop
 
     let progressPercentage = 0;
     let status = 'unknown';
 
-    // At current stop (within 300m)
-    if (minDistance <= AT_STOP_THRESHOLD) {
-      progressPercentage = Math.round((closestStopIndex / (route.length - 1)) * 100);
-      status = 'arrived';
-    }
-    // If there's a next stop, check if we're approaching it
-    else if (nextStop) {
-      const distanceToNext = this.calculateDistance(lat, lng, nextStop.lat, nextStop.lng);
+    // Calculate progress based on actual position along route
+    if (nextStop) {
+      // Calculate total distance between current and next stop
+      const totalSegmentDistance = this.calculateDistance(
+        route[closestStopIndex].lat, route[closestStopIndex].lng,
+        nextStop.lat, nextStop.lng
+      );
       
-      // Approaching next stop (within 1km of next stop and closer to next than current)
-      if (distanceToNext <= NEAR_STOP_THRESHOLD && distanceToNext < minDistance) {
-        // Progress is between current and next stop, closer to next
-        const progressBetweenStops = 1 - (distanceToNext / NEAR_STOP_THRESHOLD);
-        progressPercentage = Math.round(((closestStopIndex + progressBetweenStops) / (route.length - 1)) * 100);
-        status = 'approaching';
+      // Calculate distance from current stop
+      const distanceFromCurrentStop = this.calculateDistance(
+        lat, lng, 
+        route[closestStopIndex].lat, route[closestStopIndex].lng
+      );
+      
+      // Calculate distance to next stop
+      const distanceToNextStop = this.calculateDistance(
+        lat, lng, 
+        nextStop.lat, nextStop.lng
+      );
+
+      // Determine if at stop, approaching, or en route
+      if (minDistance <= AT_STOP_THRESHOLD) {
+        // At current stop
+        progressPercentage = Math.round((closestStopIndex / (route.length - 1)) * 100);
+        status = 'arrived';
+      } else if (distanceToNextStop <= AT_STOP_THRESHOLD) {
+        // At next stop - update to next stop progress
+        progressPercentage = Math.round((nextStopIndex / (route.length - 1)) * 100);
+        status = 'arrived';
+      } else {
+        // En route - calculate precise position between stops
+        let segmentProgress = 0;
+        
+        // Use the smaller of the two distances to determine if closer to current or next stop
+        if (distanceFromCurrentStop < distanceToNextStop) {
+          // Closer to current stop - progress from 0 to 0.5 of segment
+          segmentProgress = Math.min(0.5, distanceFromCurrentStop / totalSegmentDistance);
+        } else {
+          // Closer to next stop - progress from 0.5 to 1.0 of segment
+          segmentProgress = 0.5 + Math.min(0.5, (totalSegmentDistance - distanceToNextStop) / totalSegmentDistance);
+        }
+        
+        progressPercentage = Math.round(((closestStopIndex + segmentProgress) / (route.length - 1)) * 100);
+        status = distanceToNextStop <= 1.0 ? 'approaching' : 'enroute';
       }
-      // Left current stop but not near next stop yet
-      else if (minDistance > AT_STOP_THRESHOLD && minDistance <= LEFT_STOP_THRESHOLD) {
-        // Just left current stop, progress slightly after current stop
-        progressPercentage = Math.round(((closestStopIndex + 0.3) / (route.length - 1)) * 100);
-        status = 'left';
-      }
-      // En route between stops
-      else {
-        // Calculate progress based on position between stops
-        const totalDistance = this.calculateDistance(
-          route[closestStopIndex].lat, route[closestStopIndex].lng,
-          nextStop.lat, nextStop.lng
-        );
-        const distanceFromCurrent = minDistance;
-        const progressBetweenStops = Math.min(0.8, distanceFromCurrent / totalDistance);
-        progressPercentage = Math.round(((closestStopIndex + progressBetweenStops) / (route.length - 1)) * 100);
-        status = 'enroute';
-      }
-    }
-    else {
+    } else {
       // At or near final stop
       progressPercentage = Math.round((closestStopIndex / (route.length - 1)) * 100);
       status = minDistance <= AT_STOP_THRESHOLD ? 'arrived' : 'near_final';
     }
 
-    // Ensure percentage is between 0 and 100
+    // Ensure percentage is between 0 and 100 and doesn't go backwards
     progressPercentage = Math.max(0, Math.min(100, progressPercentage));
+    
+    // Prevent progress from going backwards by checking localStorage
+    const lastProgressKey = `last_progress_${busId}`;
+    const lastProgress = parseInt(localStorage.getItem(lastProgressKey) || '0');
+    
+    // Only update if progress is moving forward or is a significant change
+    if (progressPercentage >= lastProgress || Math.abs(progressPercentage - lastProgress) > 10) {
+      localStorage.setItem(lastProgressKey, progressPercentage.toString());
+    } else {
+      // Use last known progress to prevent backwards movement
+      progressPercentage = lastProgress;
+    }
 
     return {
       completed: closestStopIndex,
