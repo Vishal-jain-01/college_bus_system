@@ -42,6 +42,9 @@ export default function StudentDashboard() {
   const [realTimeLocations, setRealTimeLocations] = useState([]);
   const [activeTab, setActiveTab] = useState('location');
   const [studentBusLocation, setStudentBusLocation] = useState(null);
+  const [stableLocation, setStableLocation] = useState(null); // For stable display
+  const [lastLocationUpdate, setLastLocationUpdate] = useState(null);
+  const [isLocationActive, setIsLocationActive] = useState(false);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -80,9 +83,29 @@ export default function StudentDashboard() {
               new Date().toLocaleTimeString()
           };
           
-          console.log('✅ Using location for student dashboard:', enhancedLocation);
+          // Update main location (for map and other components)
           setStudentBusLocation(enhancedLocation);
-          console.log('Driver GPS location loaded:', enhancedLocation);
+          setLastLocationUpdate(new Date());
+          setIsLocationActive(true);
+          
+          // Update stable location only if significant change detected
+          if (!stableLocation || shouldUpdateStableLocation(stableLocation, enhancedLocation)) {
+            console.log('📍 Updating stable location display');
+            setStableLocation(enhancedLocation);
+          } else {
+            console.log('📌 Keeping stable location - no significant change');
+            // Update only timestamp and coordinates for map, keep current stop stable
+            setStableLocation(prev => ({
+              ...prev,
+              lat: enhancedLocation.lat,
+              lng: enhancedLocation.lng,
+              lastUpdated: enhancedLocation.lastUpdated,
+              distanceToCurrentStop: enhancedLocation.distanceToCurrentStop,
+              distanceToNextStop: enhancedLocation.distanceToNextStop
+            }));
+          }
+          
+          console.log('✅ Location updated for student dashboard');
           
           // Debug route progress calculation
           if (enhancedLocation.currentStop && student.bus?.stops) {
@@ -115,16 +138,48 @@ export default function StudentDashboard() {
           }
         } else {
           console.log('❌ No driver location available');
-          setStudentBusLocation(null);
+          setIsLocationActive(false);
+          // Don't clear stable location immediately - keep last known good location
+          if (!stableLocation) {
+            setStudentBusLocation(null);
+          }
         }
       }
+    };
+
+    // Helper function to determine if stable location should be updated
+    const shouldUpdateStableLocation = (oldLocation, newLocation) => {
+      if (!oldLocation) return true;
+      
+      // Update if current stop changed
+      if (oldLocation.currentStop !== newLocation.currentStop) {
+        console.log('🚏 Current stop changed:', oldLocation.currentStop, '→', newLocation.currentStop);
+        return true;
+      }
+      
+      // Update if significant distance change (more than 0.1 km)
+      const distanceChange = Math.abs(
+        (oldLocation.distanceToCurrentStop || 0) - (newLocation.distanceToCurrentStop || 0)
+      );
+      if (distanceChange > 0.1) {
+        console.log('📏 Significant distance change:', distanceChange.toFixed(2), 'km');
+        return true;
+      }
+      
+      // Update if location source changed (real GPS vs fallback)
+      if (oldLocation.isRealLocation !== newLocation.isRealLocation) {
+        console.log('📡 Location source changed:', oldLocation.isRealLocation, '→', newLocation.isRealLocation);
+        return true;
+      }
+      
+      return false;
     };
 
     // Initial load
     loadStudentBusLocation();
     
-    // Update every 3 seconds for faster cross-device sync
-    const locationInterval = setInterval(loadStudentBusLocation, 3000);
+    // Update every 5 seconds for stable tracking (increased from 3 seconds)
+    const locationInterval = setInterval(loadStudentBusLocation, 5000);
 
     return () => {
       clearInterval(locationInterval);
@@ -267,22 +322,28 @@ export default function StudentDashboard() {
                     </div>
 
                     {/* Map View */}
+                    {/* Live Map with fresh coordinates */}
                     <div className="mb-6 h-64 rounded-xl overflow-hidden border border-gray-200">
                       <GoogleMap
-                        busLocations={[{
+                        busLocations={studentBusLocation ? [{
                           id: studentBusLocation.busId,
-                          lat: studentBusLocation.lat,
-                          lng: studentBusLocation.lng,
+                          lat: studentBusLocation.lat, // Use fresh coordinates for map
+                          lng: studentBusLocation.lng, // Use fresh coordinates for map
                           busNumber: studentData.bus?.$oid === '66d0123456a1b2c3d4e5f601' ? 'BUS-001' : 'BUS-002',
                           driver: studentData.bus?.$oid === '66d0123456a1b2c3d4e5f601' ? 'Rajesh Kumar' : 'Suresh Singh',
                           route: studentData.bus?.$oid === '66d0123456a1b2c3d4e5f601' 
                             ? 'Route A - City Center to College'
                             : 'Route B - Airport to College',
                           speed: studentBusLocation.speed,
-                          name: `Current Location`,
-                          nextStop: 'Next Stop',
-                          estimatedArrival: '5:30'
-                        }]}
+                          name: `Bus Location`,
+                          nextStop: stableLocation?.nextStop || 'Next Stop', // Use stable next stop
+                          estimatedArrival: '5:30',
+                          isRealLocation: studentBusLocation.isRealLocation
+                        }] : []}
+                        center={studentBusLocation ? { 
+                          lat: studentBusLocation.lat, 
+                          lng: studentBusLocation.lng 
+                        } : null}
                         center={{ lat: studentBusLocation.lat, lng: studentBusLocation.lng }}
                         zoom={15}
                       />
@@ -312,59 +373,103 @@ export default function StudentDashboard() {
                           <h5 className="text-lg font-bold text-green-800 flex items-center">
                             🚏 <span className="ml-2">Current Stop</span>
                           </h5>
-                          <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold">
-                            Active
-                          </span>
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              isLocationActive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+                            }`}></div>
+                            <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                              isLocationActive 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {isLocationActive ? 'Live' : 'Offline'}
+                            </span>
+                          </div>
                         </div>
+                        
                         <p className="text-xl font-bold text-green-700 mb-2">
-                          {studentBusLocation.currentStop || 'En Route'}
+                          {stableLocation?.currentStop || 'En Route'}
                         </p>
                         
+                        {/* Last Update Time */}
+                        {stableLocation?.lastUpdated && (
+                          <div className="mb-3 p-2 bg-green-50 rounded-lg">
+                            <p className="text-xs text-green-600">
+                              <strong>📅 Last Updated:</strong> {stableLocation.lastUpdated}
+                              {lastLocationUpdate && (
+                                <span className="ml-2">
+                                  ({Math.round((new Date() - lastLocationUpdate) / 1000)}s ago)
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-green-600 mt-1">
+                              <strong>📡 Source:</strong> {stableLocation.locationSource} 
+                              {stableLocation.isRealLocation ? ' (Real GPS)' : ' (Estimated)'}
+                            </p>
+                          </div>
+                        )}
+                        
                         {/* Distance to Current Stop */}
-                        {studentBusLocation.distanceToCurrentStop !== undefined && (
+                        {stableLocation?.distanceToCurrentStop !== undefined && (
                           <div className="flex items-center justify-between bg-green-50 p-2 rounded-lg mb-2">
                             <span className="text-sm text-green-600">
                               <strong>📍 Distance to Current Stop:</strong>
                             </span>
                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                              studentBusLocation.distanceToCurrentStop <= 0.3 
+                              stableLocation.distanceToCurrentStop <= 0.3 
                                 ? 'bg-green-500 text-white' 
-                                : studentBusLocation.distanceToCurrentStop <= 1.0
+                                : stableLocation.distanceToCurrentStop <= 1.0
                                 ? 'bg-yellow-500 text-white'
                                 : 'bg-red-500 text-white'
                             }`}>
-                              {studentBusLocation.distanceToCurrentStop.toFixed(2)} km
+                              {stableLocation.distanceToCurrentStop.toFixed(2)} km
                             </span>
                           </div>
                         )}
                         
                         <p className="text-sm text-gray-600 mb-1">
-                          <strong>Next Stop:</strong> {studentBusLocation.nextStop || 'Unknown'}
+                          <strong>Next Stop:</strong> {stableLocation?.nextStop || 'Unknown'}
                         </p>
                         
                         {/* Distance to Next Stop */}
-                        {studentBusLocation.distanceToNextStop !== undefined && (
+                        {stableLocation?.distanceToNextStop !== undefined && (
                           <div className="flex items-center justify-between bg-blue-50 p-2 rounded-lg mb-2">
                             <span className="text-sm text-blue-600">
                               <strong>🎯 Distance to Next Stop:</strong>
                             </span>
                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                              studentBusLocation.distanceToNextStop <= 0.5 
+                              stableLocation.distanceToNextStop <= 0.5 
                                 ? 'bg-blue-500 text-white' 
-                                : studentBusLocation.distanceToNextStop <= 2.0
+                                : stableLocation.distanceToNextStop <= 2.0
                                 ? 'bg-indigo-500 text-white'
                                 : 'bg-purple-500 text-white'
                             }`}>
-                              {studentBusLocation.distanceToNextStop.toFixed(2)} km
+                              {stableLocation.distanceToNextStop.toFixed(2)} km
                             </span>
                           </div>
                         )}
-                        {studentBusLocation.estimatedArrival && (
+                        {studentBusLocation?.estimatedArrival && (
                           <p className="text-sm text-blue-600">
                             <strong>ETA to Next Stop:</strong> {studentBusLocation.estimatedArrival}
                           </p>
                         )}
                       </div>
+
+                      {/* No Location Data Fallback */}
+                      {!stableLocation && (
+                        <div className="mb-6 p-4 bg-gray-50 rounded-xl border-2 border-gray-200 text-center">
+                          <div className="flex items-center justify-center mb-2">
+                            <div className="w-3 h-3 rounded-full bg-gray-400 animate-pulse mr-2"></div>
+                            <h5 className="text-lg font-bold text-gray-600">Waiting for Bus Location</h5>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">
+                            📡 Connecting to driver's GPS location...
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Make sure the driver has started location tracking
+                          </p>
+                        </div>
+                      )}
 
                       {/* Route Progress - Horizontal Train Style */}
                       <div className="mb-6 p-4 bg-white rounded-xl border border-blue-200">
