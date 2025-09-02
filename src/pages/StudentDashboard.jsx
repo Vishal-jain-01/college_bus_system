@@ -344,7 +344,6 @@ export default function StudentDashboard() {
                           lat: studentBusLocation.lat, 
                           lng: studentBusLocation.lng 
                         } : null}
-                        center={{ lat: studentBusLocation.lat, lng: studentBusLocation.lng }}
                         zoom={15}
                       />
                     </div>
