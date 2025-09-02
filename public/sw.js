@@ -1,111 +1,82 @@
-console.log('🔄 Service Worker installed');
+// Simple Service Worker for Background Location Tracking
+const API_BASE_URL = 'https://bus-tracking-system-1-gh4s.onrender.com';
 
-// Suppress cache warnings
+let backgroundInterval = null;
+let lastLocation = null;
+let isActive = false;
+
+// Install event
 self.addEventListener('install', (event) => {
+  console.log('🔧 SW: Installing...');
   self.skipWaiting();
 });
 
+// Activate event
 self.addEventListener('activate', (event) => {
+  console.log('✅ SW: Activated');
   event.waitUntil(self.clients.claim());
 });
-
-// Background location tracking variables
-let locationInterval = null;
-let isTrackingActive = false;
-let driverData = null;
-let lastLocation = null; // Store last known location
 
 // Listen for messages from main thread
 self.addEventListener('message', (event) => {
   const { type, data } = event.data;
   
-  console.log('📨 Service Worker received message:', type);
-  
   switch (type) {
-    case 'START_LOCATION_TRACKING':
-      startBackgroundLocationTracking(data);
+    case 'START_BACKGROUND':
+      startBackground();
       break;
-    case 'STOP_LOCATION_TRACKING':
-      stopBackgroundLocationTracking();
+    case 'STOP_BACKGROUND':
+      stopBackground();
       break;
-    case 'UPDATE_DRIVER_DATA':
-      driverData = data;
-      break;
-    case 'POST_LOCATION':
-      // Handle direct location posting from main thread
-      if (data) {
-        console.log('📤 Service Worker: Received location from main thread');
-        lastLocation = data; // Store the fresh location
-        sendLocationToBackend(data);
-      }
+    case 'UPDATE_LOCATION':
+      lastLocation = data;
       break;
   }
 });
 
-// Start background location tracking
-function startBackgroundLocationTracking(data) {
-  if (isTrackingActive) {
-    console.log('⚠️ Background tracking already active');
-    return;
-  }
+// Start background posting
+function startBackground() {
+  isActive = true;
+  console.log('🚀 SW: Background started');
   
-  console.log('🎯 Starting background location tracking');
-  isTrackingActive = true;
-  driverData = data;
+  if (backgroundInterval) clearInterval(backgroundInterval);
   
-  // Continue posting last known location when app is backgrounded
-  locationInterval = setInterval(() => {
-    if (lastLocation && driverData) {
-      console.log('📍 Background: Posting last known location');
-      sendLocationToBackend(lastLocation);
+  backgroundInterval = setInterval(() => {
+    if (lastLocation && isActive) {
+      postLocation();
     }
-  }, 15000); // Post every 15 seconds in background
+  }, 15000); // Post every 15 seconds
 }
 
-// Stop background location tracking
-function stopBackgroundLocationTracking() {
-  console.log('⏹️ Stopping background location tracking');
-  if (locationInterval) {
-    clearInterval(locationInterval);
-    locationInterval = null;
+// Stop background posting
+function stopBackground() {
+  isActive = false;
+  if (backgroundInterval) {
+    clearInterval(backgroundInterval);
+    backgroundInterval = null;
   }
-  isTrackingActive = false;
-  lastLocation = null;
+  console.log('⏹️ SW: Background stopped');
 }
 
-// Send location to backend
-async function sendLocationToBackend(locationData) {
-  if (!driverData || !locationData) {
-    console.log('❌ Missing driver data or location data');
-    return;
-  }
+// Post location to backend
+async function postLocation() {
+  if (!lastLocation) return;
   
   try {
-    const backendUrl = 'https://busmate-backend.onrender.com';
-    
-    const response = await fetch(`${backendUrl}/api/driver-location/save`, {
+    const response = await fetch(`${API_BASE_URL}/api/location/update-location/${lastLocation.busId}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        driverId: driverData.id,
-        driverName: driverData.name,
-        busNumber: driverData.busNumber,
-        location: {
-          latitude: locationData.latitude,
-          longitude: locationData.longitude
-        },
-        timestamp: new Date().toISOString()
+        ...lastLocation,
+        timestamp: new Date().toISOString(),
+        source: 'background'
       })
     });
     
     if (response.ok) {
-      console.log('✅ Background location posted successfully');
-    } else {
-      console.log('❌ Failed to post background location:', response.status);
+      console.log('✅ SW: Location posted');
     }
   } catch (error) {
-    console.log('❌ Error posting background location:', error);
+    console.log('❌ SW: Post failed:', error);
   }
 }

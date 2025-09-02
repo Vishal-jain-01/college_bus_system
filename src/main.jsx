@@ -3,15 +3,15 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
-// Register Service Worker for background location tracking
+// Simple Service Worker registration
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+    navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
-        console.log('🎯 SW registered in main.jsx:', registration);
+        console.log('✅ Service Worker registered');
       })
-      .catch((registrationError) => {
-        console.log('❌ SW registration failed in main.jsx:', registrationError);
+      .catch((error) => {
+        console.log('❌ Service Worker registration failed:', error);
       });
   });
 }
