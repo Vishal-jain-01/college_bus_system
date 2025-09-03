@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bus Route Seeder</title>
+</head>
+<body>
+    <h1>Bus Route Database Seeder</h1>
+    <button onclick="seedRoutes()">Seed Route Data</button>
+    <div id="result"></div>
+    
+    <script>
+        async function seedRoutes() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Seeding routes...';
+            
+            try {
+                const response = await fetch('http://localhost:3001/api/seed-routes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                resultDiv.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            } catch (error) {
+                resultDiv.innerHTML = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
