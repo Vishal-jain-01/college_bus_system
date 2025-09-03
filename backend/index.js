@@ -43,8 +43,11 @@ app.post("/api/seed-routes", async (req, res) => {
     await Bus.deleteMany();
     console.log("🗑️ Cleared existing bus data");
 
-    // Create buses with detailed route stops
+    // Create buses with specific ObjectIDs that frontend expects
+    const { ObjectId } = require('mongoose').Types;
+    
     const bus1 = await Bus.create({ 
+      _id: new ObjectId('66d0123456a1b2c3d4e5f601'), // Frontend expects this ID
       busNumber: "BUS-101", 
       route: "MIET to Muzaffarnagar",
       capacity: 50,
@@ -58,6 +61,7 @@ app.post("/api/seed-routes", async (req, res) => {
     });
     
     const bus2 = await Bus.create({ 
+      _id: new ObjectId('66d0123456a1b2c3d4e5f602'), // Frontend expects this ID
       busNumber: "BUS-102", 
       route: "MIET to Delhi",
       capacity: 45,
@@ -75,11 +79,11 @@ app.post("/api/seed-routes", async (req, res) => {
     // Refresh the bus routes cache
     await refreshBusRoutes();
 
-    console.log(`🚌 Created buses with route data`);
+    console.log(`🚌 Created buses with route data and frontend-expected IDs`);
     
     res.json({
       success: true,
-      message: "Route data seeded successfully",
+      message: "Route data seeded successfully with expected IDs",
       buses: [
         { id: bus1._id, number: bus1.busNumber, stops: bus1.stops.length },
         { id: bus2._id, number: bus2.busNumber, stops: bus2.stops.length }

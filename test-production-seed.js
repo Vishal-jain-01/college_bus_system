@@ -17,7 +17,19 @@ async function testSeedEndpoint() {
     console.log('\n🚌 Testing buses endpoint...');
     const busesResponse = await fetch('https://college-bus-system-main.onrender.com/api/buses');
     const busesData = await busesResponse.json();
-    console.log('📍 Buses data:', JSON.stringify(busesData, null, 2));
+    console.log('📍 Buses data count:', busesData.length);
+    
+    // Show just the IDs and numbers for reference
+    busesData.forEach(bus => {
+      console.log(`   ${bus.busNumber}: ${bus._id} (${bus.stops.length} stops)`);
+    });
+    
+    // Test route progress with the new IDs
+    console.log('\n🛤️ Testing route progress with actual bus ID...');
+    const testBusId = busesData[0]._id; // Use the first bus ID
+    const locationResponse = await fetch(`https://college-bus-system-main.onrender.com/api/location/current-location/${testBusId}`);
+    const locationData = await locationResponse.json();
+    console.log('📍 Location data for', testBusId, ':', JSON.stringify(locationData, null, 2));
     
   } catch (error) {
     console.error('❌ Error:', error.message);

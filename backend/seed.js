@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 async function seedData() {
   // Use MongoDB Atlas connection string (same as in index.js)
-  const mongoUri = process.env.MONGODB_URI || "mongodb+srv://anshul:anshul123@cluster0.0g0lm.mongodb.net/college-bus?retryWrites=true&w=majority&appName=Cluster0";
+  const mongoUri = process.env.MONGODB_URI ;
   
   await mongoose.connect(mongoUri);
 
