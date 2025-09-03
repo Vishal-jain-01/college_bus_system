@@ -80,6 +80,7 @@ app.post("/api/seed-routes", async (req, res) => {
     await refreshBusRoutes();
 
     console.log(`🚌 Created buses with route data and frontend-expected IDs`);
+    console.log(`✅ Bus 1 ID: ${bus1._id}, Bus 2 ID: ${bus2._id}`);
     
     res.json({
       success: true,
