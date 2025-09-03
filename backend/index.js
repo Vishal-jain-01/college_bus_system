@@ -10,6 +10,7 @@ dotenv.config();
 import Student from "./models/Student.js";
 import Bus from "./models/Bus.js";
 import authRoutes from "./routes/auth.js";
+import healthzRoutes from "./routes/healthz.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use(cors({
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
+app.use("/healthz", healthzRoutes);
 
 // Connect to DB (optional - location API works without it)
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/bus';
