@@ -34,7 +34,10 @@ app.use("/api/auth", authRoutes);
 app.use("/healthz", healthzRoutes);
 
 // Connect to DB (optional - location API works without it)
-const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI
+const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/bus';
+
+console.log('🔍 Attempting MongoDB connection...');
+console.log('📡 Connection string format:', MONGODB_URI ? 'Found' : 'Missing');
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
