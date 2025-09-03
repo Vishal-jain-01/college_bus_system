@@ -163,6 +163,28 @@ async function refreshBusRoutes() {
       }
     });
     
+    // TEMPORARY WORKAROUND: Add hardcoded routes if database is empty or missing expected IDs
+    if (!busRoutesCache['66d0123456a1b2c3d4e5f601']) {
+      console.log('⚠️ Adding temporary route data for frontend compatibility');
+      busRoutesCache['66d0123456a1b2c3d4e5f601'] = [
+        { lat: 28.9730, lng: 77.6410, name: 'MIET Campus' },
+        { lat: 28.9954, lng: 77.6456, name: 'rohta bypass' },
+        { lat: 28.9938, lng: 77.6822, name: 'Meerut Cantt' },
+        { lat: 29.0661, lng: 77.7104, name: 'modipuram' }
+      ];
+    }
+    
+    if (!busRoutesCache['66d0123456a1b2c3d4e5f602']) {
+      busRoutesCache['66d0123456a1b2c3d4e5f602'] = [
+        { lat: 28.9730, lng: 77.6410, name: 'MIET Campus, Meerut' },
+        { lat: 28.9938, lng: 77.6822, name: 'Meerut Cantt' },
+        { lat: 28.6692, lng: 77.4538, name: 'Ghaziabad' },
+        { lat: 28.61, lng: 77.23, name: 'Delhi Border' },
+        { lat: 28.6477, lng: 77.3145, name: 'ISBT Anand Vihar' },
+        { lat: 28.6304, lng: 77.2177, name: 'Connaught Place, Delhi' }
+      ];
+    }
+    
     console.log('📍 Bus routes refreshed from database:', Object.keys(busRoutesCache).length, 'routes loaded');
   } catch (error) {
     console.error('❌ Error refreshing bus routes:', error.message);
@@ -173,6 +195,14 @@ async function refreshBusRoutes() {
         { lat: 28.9954, lng: 77.6456, name: 'rohta bypass' },
         { lat: 28.9938, lng: 77.6822, name: 'Meerut Cantt' },
         { lat: 29.0661, lng: 77.7104, name: 'modipuram' }
+      ],
+      '66d0123456a1b2c3d4e5f602': [
+        { lat: 28.9730, lng: 77.6410, name: 'MIET Campus, Meerut' },
+        { lat: 28.9938, lng: 77.6822, name: 'Meerut Cantt' },
+        { lat: 28.6692, lng: 77.4538, name: 'Ghaziabad' },
+        { lat: 28.61, lng: 77.23, name: 'Delhi Border' },
+        { lat: 28.6477, lng: 77.3145, name: 'ISBT Anand Vihar' },
+        { lat: 28.6304, lng: 77.2177, name: 'Connaught Place, Delhi' }
       ]
     };
   }
