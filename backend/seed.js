@@ -12,9 +12,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function seedData() {
-  await mongoose.connect("mongodb://localhost:27017/bus");
+  // Use MongoDB Atlas connection string (same as in index.js)
+  const mongoUri = process.env.MONGODB_URI || "mongodb+srv://anshul:anshul123@cluster0.0g0lm.mongodb.net/college-bus?retryWrites=true&w=majority&appName=Cluster0";
+  
+  await mongoose.connect(mongoUri);
 
   console.log("🔄 Starting database seeding...");
+  console.log("🌐 Connected to MongoDB Atlas");
 
   // Clear old data
   await Student.deleteMany();
@@ -24,11 +28,37 @@ async function seedData() {
 
   console.log("🗑️  Cleared existing data");
 
-  // Create 2 buses
-  const bus1 = await Bus.create({ busNumber: "BUS-101", route: "MIET to Muzaffarnagar" });
-  const bus2 = await Bus.create({ busNumber: "BUS-102", route: "MIET to Delhi" });
+  // Create buses with route stops
+  const bus1 = await Bus.create({ 
+    busNumber: "BUS-101", 
+    route: "MIET to Muzaffarnagar",
+    capacity: 50,
+    isActive: true,
+    stops: [
+      { name: 'MIET Campus', lat: 28.9730, lng: 77.6410, order: 1 },
+      { name: 'rohta bypass', lat: 28.9954, lng: 77.6456, order: 2 },
+      { name: 'Meerut Cantt', lat: 28.9938, lng: 77.6822, order: 3 },
+      { name: 'modipuram', lat: 29.0661, lng: 77.7104, order: 4 }
+    ]
+  });
+  
+  const bus2 = await Bus.create({ 
+    busNumber: "BUS-102", 
+    route: "MIET to Delhi",
+    capacity: 45,
+    isActive: true,
+    stops: [
+      { name: 'MIET Campus, Meerut', lat: 28.9730, lng: 77.6410, order: 1 },
+      { name: 'Meerut Cantt', lat: 28.9938, lng: 77.6822, order: 2 },
+      { name: 'Ghaziabad', lat: 28.6692, lng: 77.4538, order: 3 },
+      { name: 'Delhi Border', lat: 28.61, lng: 77.23, order: 4 },
+      { name: 'ISBT Anand Vihar', lat: 28.6477, lng: 77.3145, order: 5 },
+      { name: 'Connaught Place, Delhi', lat: 28.6304, lng: 77.2177, order: 6 }
+    ]
+  });
 
-  console.log(`🚌 Created buses: ${bus1.busNumber} (${bus1._id}) and ${bus2.busNumber} (${bus2._id})`);
+  console.log(`🚌 Created buses with route data: ${bus1.busNumber} (${bus1._id}) and ${bus2.busNumber} (${bus2._id})`);
+  console.log(`📍 Bus 1 has ${bus1.stops.length} stops, Bus 2 has ${bus2.stops.length} stops`);
 
 
   // Read students from student.json
@@ -113,8 +143,13 @@ async function seedData() {
       throw error;
     }
   }));
-  await Driver.insertMany(driversToInsert);
-  console.log(`✅ Inserted ${driversToInsert.length} drivers`);
+  const createdDrivers = await Driver.insertMany(driversToInsert);
+  console.log(`✅ Inserted ${createdDrivers.length} drivers`);
+
+  // Update buses with driver references
+  await Bus.findByIdAndUpdate(bus1._id, { driver: createdDrivers[0]._id });
+  await Bus.findByIdAndUpdate(bus2._id, { driver: createdDrivers[1]._id });
+  console.log(`🔗 Updated buses with driver references`);
 
   console.log("✅ Database seeded successfully!");
   process.exit();

@@ -31,7 +31,65 @@ app.use(cors({
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
-app.use("/healthz", healthzRoutes);
+// Health check endpoint for UptimeRobot
+app.use("/api/healthz", healthzRoutes);
+
+// DEVELOPMENT: Seed route data endpoint (remove in production)
+app.post("/api/seed-routes", async (req, res) => {
+  try {
+    console.log("🌱 Manual route seeding requested");
+    
+    // Clear existing buses
+    await Bus.deleteMany();
+    console.log("🗑️ Cleared existing bus data");
+
+    // Create buses with detailed route stops
+    const bus1 = await Bus.create({ 
+      busNumber: "BUS-101", 
+      route: "MIET to Muzaffarnagar",
+      capacity: 50,
+      isActive: true,
+      stops: [
+        { name: 'MIET Campus', lat: 28.9730, lng: 77.6410, order: 1 },
+        { name: 'rohta bypass', lat: 28.9954, lng: 77.6456, order: 2 },
+        { name: 'Meerut Cantt', lat: 28.9938, lng: 77.6822, order: 3 },
+        { name: 'modipuram', lat: 29.0661, lng: 77.7104, order: 4 }
+      ]
+    });
+    
+    const bus2 = await Bus.create({ 
+      busNumber: "BUS-102", 
+      route: "MIET to Delhi",
+      capacity: 45,
+      isActive: true,
+      stops: [
+        { name: 'MIET Campus, Meerut', lat: 28.9730, lng: 77.6410, order: 1 },
+        { name: 'Meerut Cantt', lat: 28.9938, lng: 77.6822, order: 2 },
+        { name: 'Ghaziabad', lat: 28.6692, lng: 77.4538, order: 3 },
+        { name: 'Delhi Border', lat: 28.61, lng: 77.23, order: 4 },
+        { name: 'ISBT Anand Vihar', lat: 28.6477, lng: 77.3145, order: 5 },
+        { name: 'Connaught Place, Delhi', lat: 28.6304, lng: 77.2177, order: 6 }
+      ]
+    });
+
+    // Refresh the bus routes cache
+    await refreshBusRoutes();
+
+    console.log(`🚌 Created buses with route data`);
+    
+    res.json({
+      success: true,
+      message: "Route data seeded successfully",
+      buses: [
+        { id: bus1._id, number: bus1.busNumber, stops: bus1.stops.length },
+        { id: bus2._id, number: bus2.busNumber, stops: bus2.stops.length }
+      ]
+    });
+  } catch (error) {
+    console.error("❌ Error seeding route data:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Connect to DB (optional - location API works without it)
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI ;
@@ -52,33 +110,72 @@ app.get("/api/students", async (req, res) => {
   res.json(students);
 });
 
-// API: Get all buses
+// API: Get all buses with populated driver and route data
 app.get("/api/buses", async (req, res) => {
-  const buses = await Bus.find();
-  res.json(buses);
+  try {
+    const buses = await Bus.find().populate("driver").sort({ busNumber: 1 });
+    res.json(buses);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Get bus route by ID
+app.get("/api/buses/:busId/route", async (req, res) => {
+  try {
+    const bus = await Bus.findById(req.params.busId);
+    if (!bus) {
+      return res.status(404).json({ error: "Bus not found" });
+    }
+    res.json({ busId: bus._id, route: bus.route, stops: bus.stops });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // 🚌 GPS LOCATION API ROUTES FOR CROSS-DEVICE SYNC
 // Store for real-time location data (in production, use MongoDB)
 const locationData = new Map();
 
-// Route definitions for route progress calculation
-const busRoutes = {
-  '66d0123456a1b2c3d4e5f601': [
-    { lat: 28.9730, lng: 77.6410, name: 'MIET Campus' },
-    { lat: 28.9954, lng: 77.6456, name: 'rohta bypass' },
-    { lat: 28.9938, lng: 77.6822, name: 'Meerut Cantt' },
-    { lat: 29.0661, lng: 77.7104, name: 'modipuram' }
-  ],
-  '66d0123456a1b2c3d4e5f602': [
-    { lat: 28.9730, lng: 77.6410, name: 'MIET Campus, Meerut' },
-    { lat: 28.9938, lng: 77.6822, name: 'Meerut Cantt' },
-    { lat: 28.6692, lng: 77.4538, name: 'Ghaziabad' },
-    { lat: 28.61, lng: 77.23, name: 'Delhi Border' },
-    { lat: 28.6477, lng: 77.3145, name: 'ISBT Anand Vihar' },
-    { lat: 28.6304, lng: 77.2177, name: 'Connaught Place, Delhi' }
-  ]
-};
+// Cache for bus routes (refreshed from database)
+let busRoutesCache = {};
+
+// Function to refresh bus routes from database
+async function refreshBusRoutes() {
+  try {
+    const buses = await Bus.find().select('_id stops');
+    busRoutesCache = {};
+    
+    buses.forEach(bus => {
+      if (bus.stops && bus.stops.length > 0) {
+        // Sort stops by order and convert to route format
+        const sortedStops = bus.stops.sort((a, b) => a.order - b.order);
+        busRoutesCache[bus._id.toString()] = sortedStops.map(stop => ({
+          lat: stop.lat,
+          lng: stop.lng,
+          name: stop.name
+        }));
+      }
+    });
+    
+    console.log('📍 Bus routes refreshed from database:', Object.keys(busRoutesCache).length, 'routes loaded');
+  } catch (error) {
+    console.error('❌ Error refreshing bus routes:', error.message);
+    // Fallback to hardcoded routes if database fails
+    busRoutesCache = {
+      '66d0123456a1b2c3d4e5f601': [
+        { lat: 28.9730, lng: 77.6410, name: 'MIET Campus' },
+        { lat: 28.9954, lng: 77.6456, name: 'rohta bypass' },
+        { lat: 28.9938, lng: 77.6822, name: 'Meerut Cantt' },
+        { lat: 29.0661, lng: 77.7104, name: 'modipuram' }
+      ]
+    };
+  }
+}
+
+// Refresh routes on startup and every 5 minutes
+refreshBusRoutes();
+setInterval(refreshBusRoutes, 5 * 60 * 1000);
 
 // Calculate distance between two points (in km)
 function calculateDistance(lat1, lng1, lat2, lng2) {
@@ -94,14 +191,17 @@ function calculateDistance(lat1, lng1, lat2, lng2) {
 
 // Calculate route progress and current stop
 function calculateRouteProgress(busId, lat, lng) {
-  const route = busRoutes[busId];
-  if (!route) return { 
-    currentStop: 'Unknown Route', 
-    nextStop: 'N/A', 
-    routeProgress: 0,
-    distanceToCurrentStop: 0,
-    distanceToNextStop: 0
-  };
+  const route = busRoutesCache[busId];
+  if (!route || route.length === 0) {
+    console.log(`⚠️ No route found for bus ${busId}, returning default progress`);
+    return { 
+      currentStop: 'Loading route...', 
+      nextStop: 'Calculating...', 
+      routeProgress: 0,
+      distanceToCurrentStop: 0,
+      distanceToNextStop: 0
+    };
+  }
 
   let closestStopIndex = 0;
   let minDistance = Infinity;
